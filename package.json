@@ -1,0 +1,16 @@
+{
+  "name": "meso-live-roulette",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "실시간 후원 메소 룰렛과 OBS 브라우저 오버레이",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "check": "node --check src/server.js && node --check src/engine.js && node --check src/youtube.js && node --check src/connections.js && node --check public/dashboard.js && node --check public/overlay.js"
+  }
+}

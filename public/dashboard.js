@@ -54,6 +54,11 @@ async function connections() {
   $('youtube-redirect').value = info.youtube.redirectUri;
   $('youtube-app-status').textContent = `OAuth 앱: ${info.youtube.appConfigured ? '설정됨' : '미설정'} · 계정 인증: ${info.youtube.authConfigured ? '설정됨' : '미설정'}`;
   $('youtube-connect').disabled = !info.youtube.appConfigured;
+  $('chzzk-connect').disabled = !info.chzzk.appConfigured; $('chzzk-url-connect').disabled = !info.sources.chzzk;
+  $('chzzk-redirect').value = info.chzzk.redirectUri;
+  $('chzzk-app-status').textContent = `개발자 앱: ${info.chzzk.appConfigured ? '설정됨' : '운영자 설정 필요'} · 계정: ${info.chzzk.authConfigured ? '인증됨' : '연결 필요'}`;
+  $('soop-connect').disabled = !info.sources.soop; $('soop-disconnect').disabled = !info.soop.enabled;
+  $('toonation-widget-status').textContent = info.toonation.widgetConfigured ? '위젯 URL이 안전하게 저장되어 있습니다. 수신 상태를 확인하세요.' : '알림 위젯 URL을 입력하세요.';
   const rouletteUrl = new URL('/overlay.html', location.origin); rouletteUrl.searchParams.set('token', info.overlayToken);
   const mesoUrl = new URL('/meso.html', location.origin); mesoUrl.searchParams.set('token', info.overlayToken);
   $('roulette-url').value = rouletteUrl.href; $('meso-url').value = mesoUrl.href;
@@ -61,9 +66,9 @@ async function connections() {
   if (!$('preview').src || new URL($('preview').src).href !== previewUrl.href) $('preview').src = previewUrl.href;
   $('provider-cards').replaceChildren(...info.providers.map(provider => {
     const card = document.createElement('div'); card.className = 'provider-card'; const icon = document.createElement('div'); icon.className = 'provider-icon'; icon.textContent = names[provider.provider].slice(0, 1);
-    const title = document.createElement('h3'); title.textContent = names[provider.provider]; const badge = document.createElement('span'); badge.className = `pill ${provider.state === 'connected' ? 'good' : provider.state === 'error' ? 'bad' : ''}`;
-    badge.textContent = ({ connected: '연결됨', not_configured: '인증 필요', bridge_required: '브리지 필요', error: '연결 오류', offline: '방송 종료' })[provider.state] || '대기';
-    const detail = document.createElement('p'); detail.textContent = provider.detail + (provider.skippedCurrency ? ` · 외화 후원 ${provider.skippedCurrency}건 제외` : ''); card.append(icon, title, badge, detail); return card;
+    const title = document.createElement('h3'); title.textContent = names[provider.provider]; const badge = document.createElement('span'); badge.className = `pill ${['connected', 'listening'].includes(provider.state) ? 'good' : provider.state === 'error' ? 'bad' : ''}`;
+    badge.textContent = ({ connected: '후원 수신 확인', listening: '수신 대기', connecting: '연결 중', reconnecting: '재연결 중', auth_required: '권한 필요', not_configured: '연결 필요', error: '연결 오류', offline: '방송 종료' })[provider.state] || '대기';
+    const detail = document.createElement('p'); detail.textContent = provider.detail + (provider.skippedCurrency ? ` · 외화 후원 ${provider.skippedCurrency}건 제외` : ''); card.append(icon, title, badge, detail); if (provider.configured) { const retry = document.createElement('button'); retry.className = 'text-button'; retry.textContent = '다시 연결'; retry.addEventListener('click', async () => { try { await api('/api/provider/reconnect', { provider: provider.provider }); await connections(); } catch (error) { notice(error.message, true); } }); card.append(retry); } return card;
   }));
 }
 async function stream() {
@@ -79,7 +84,7 @@ async function stream() {
   $('server-status').textContent = '재연결 중…'; retryTimer = setTimeout(stream, 2500);
 }
 async function login() {
-  renderState(await api('/api/state')); sessionStorage.setItem('meso-admin', token); $('login').hidden = true; $('app').hidden = false; await connections(); void stream(); clearInterval(statusTimer); statusTimer = setInterval(() => { connections().catch(() => {}); }, 15_000);
+  renderState(await api('/api/state')); sessionStorage.setItem('meso-admin', token); $('login').hidden = true; $('app').hidden = false; await connections(); if (new URLSearchParams(location.search).has('connected') || new URLSearchParams(location.search).has('youtube')) { tab('connections'); notice('계정 인증을 저장했습니다. 플랫폼의 실제 수신 상태를 확인하세요.'); history.replaceState(null, '', '/'); } void stream(); clearInterval(statusTimer); statusTimer = setInterval(() => { connections().catch(() => {}); }, 15_000);
 }
 $('login-form').addEventListener('submit', async event => { event.preventDefault(); token = $('admin-key').value.trim(); try { await login(); $('admin-key').value = ''; } catch (error) { $('login-error').textContent = error.message; } });
 $('logout').addEventListener('click', () => { token = ''; sessionStorage.removeItem('meso-admin'); streamController?.abort(); clearTimeout(retryTimer); clearInterval(statusTimer); location.reload(); });
@@ -110,7 +115,17 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
 if (token) login().catch(() => { sessionStorage.removeItem('meso-admin'); $('login-error').textContent = '관리자 키를 다시 입력하세요.'; });
 
-$('source-form').addEventListener('submit', async event => { event.preventDefault(); try { const sources = Object.fromEntries(Object.keys(names).map(provider => [provider, $(`source-${provider}`).value])); await api('/api/sources', sources); await connections(); notice('방송 URL을 저장했습니다. 계정 인증과 수신 상태를 확인하세요.'); } catch (error) { notice(error.message, true); } });
+$('source-form').addEventListener('submit', async event => { event.preventDefault(); try { const sources = Object.fromEntries(Object.keys(names).map(provider => [provider, $(`source-${provider}`).value])); await api('/api/sources', sources); await connections(); notice('방송 URL을 저장했습니다. 아래에서 플랫폼 연결을 진행하세요.'); } catch (error) { notice(error.message, true); } });
 $('youtube-app-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/youtube/app', { clientId: $('youtube-client-id').value.trim(), clientSecret: $('youtube-client-secret').value }); $('youtube-client-secret').value = ''; await connections(); notice('OAuth 앱 설정을 저장했습니다. 리디렉션 URI를 확인한 뒤 계정을 연결하세요.'); } catch (error) { notice(error.message, true); } });
 $('youtube-connect').addEventListener('click', async () => { try { const result = await api('/api/youtube/authorize', {}); location.assign(result.url); } catch (error) { notice(error.message, true); } });
 $('youtube-disconnect').addEventListener('click', async () => { try { await api('/api/youtube/disconnect', {}); await connections(); notice('로컬 YouTube 인증을 삭제했습니다. Google 계정의 앱 접근 권한은 계정 설정에서 해제할 수 있습니다.'); } catch (error) { notice(error.message, true); } });
+
+$('chzzk-app-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/chzzk/app', { clientId: $('chzzk-client-id').value.trim(), clientSecret: $('chzzk-client-secret').value }); $('chzzk-client-secret').value = ''; await connections(); notice('치지직 앱 설정을 저장했습니다. 등록할 리디렉션 URI와 권한을 확인하세요.'); } catch (error) { notice(error.message, true); } });
+$('chzzk-connect').addEventListener('click', async () => { try { const result = await api('/api/chzzk/authorize', {}); location.assign(result.url); } catch (error) { notice(error.message, true); } });
+$('chzzk-disconnect').addEventListener('click', async () => { try { await api('/api/chzzk/disconnect', {}); await connections(); notice('로컬 치지직 연결을 해제했습니다. 계정의 앱 권한은 치지직 계정 설정에서도 해제할 수 있습니다.'); } catch (error) { notice(error.message, true); } });
+$('soop-connect').addEventListener('click', async () => { try { await api('/api/soop/connection', { enabled: true }); await connections(); notice('SOOP 연결을 시작했습니다. 방송이 진행 중인지 확인하세요.'); } catch (error) { notice(error.message, true); } });
+$('soop-disconnect').addEventListener('click', async () => { try { await api('/api/soop/connection', { enabled: false }); await connections(); notice('SOOP 연결을 해제했습니다.'); } catch (error) { notice(error.message, true); } });
+$('toonation-widget-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/toonation/widget', { widgetUrl: $('toonation-widget-url').value.trim() }); $('toonation-widget-url').value = ''; await connections(); notice('투네이션 위젯 연결을 시작했습니다. 수신 상태를 확인하세요.'); } catch (error) { notice(error.message, true); } });
+$('toonation-disconnect').addEventListener('click', async () => { try { await api('/api/toonation/widget', { widgetUrl: '' }); await connections(); notice('투네이션 위젯 연결 정보를 삭제했습니다.'); } catch (error) { notice(error.message, true); } });
+
+$('chzzk-url-connect').addEventListener('click', async () => { try { await api('/api/chzzk/connection', { enabled: true }); await connections(); notice('치지직 공개 방송 연결을 시작했습니다. 방송 상태를 확인하세요.'); } catch (error) { notice(error.message, true); } });

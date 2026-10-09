@@ -6,6 +6,10 @@ import { createHmac, randomBytes, timingSafeEqual, randomUUID } from 'node:crypt
 import { Engine, InputError, PROVIDERS } from './engine.js';
 import { YouTubeConnector } from './youtube.js';
 import { Connections } from './connections.js';
+import { ChzzkPublicConnector } from './chzzk-public.js';
+import { ChzzkConnector } from './chzzk.js';
+import { SoopConnector } from './soop.js';
+import { ToonationConnector } from './toonation.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -23,13 +27,20 @@ function loadKeys(dataDir) {
   return keys;
 }
 
-export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process.env, engine: suppliedEngine } = {}) {
+export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process.env, engine: suppliedEngine, connectorOptions = {} } = {}) {
   keys ||= loadKeys(dataDir);
   keys = { admin: env.ADMIN_TOKEN || keys.admin, overlay: env.OVERLAY_TOKEN || keys.overlay, webhook: env.WEBHOOK_SECRET || keys.webhook };
   const engine = suppliedEngine || new Engine(resolve(dataDir, 'state.json'));
   const connections = new Connections(dataDir, env);
-  let youtube = new YouTubeConnector(engine, { env: connections.runtime() });
-  const restartYouTube = () => { youtube.stop(); youtube = new YouTubeConnector(engine, { env: connections.runtime() }); youtube.start(); };
+  const makeConnector = {
+    youtube: () => new YouTubeConnector(engine, { env: connections.runtime(), ...connectorOptions.youtube }),
+    chzzk: () => connections.data.chzzk.mode === 'oauth' ? new ChzzkConnector(engine, connections, connectorOptions.chzzk) : new ChzzkPublicConnector(engine, connections, connectorOptions.chzzkPublic),
+    soop: () => new SoopConnector(engine, connections, connectorOptions.soop),
+    toonation: () => new ToonationConnector(engine, connections, connectorOptions.toonation)
+  };
+  const connectors = Object.fromEntries(PROVIDERS.map(provider => [provider, makeConnector[provider]() ]));
+  const restartProvider = provider => { connectors[provider].stop(); connectors[provider] = makeConnector[provider](); connectors[provider].start(); };
+  const stopProviders = () => { for (const connector of Object.values(connectors)) connector.stop(); };
   const clients = new Set();
   const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
   const admin = req => sameSecret(req.headers.authorization, `Bearer ${keys.admin}`);
@@ -58,8 +69,12 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/oauth/youtube/callback' && req.method === 'GET') {
-        await connections.callback(url.searchParams); restartYouTube();
+        await connections.callback(url.searchParams); restartProvider('youtube');
         res.writeHead(303, { Location: '/?youtube=connected', 'Cache-Control': 'no-store' }); res.end(); return;
+      }
+      if (url.pathname === '/oauth/chzzk/callback' && req.method === 'GET') {
+        await connections.callbackChzzk(url.searchParams); restartProvider('chzzk');
+        res.writeHead(303, { Location: '/?connected=chzzk', 'Cache-Control': 'no-store' }); res.end(); return;
       }
       if (url.pathname === '/api/health'  && req.method === 'GET') return json(res, 200, { ok: true });
       if (url.pathname.startsWith('/webhooks/')) {
@@ -85,17 +100,23 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
         if (!admin(req)) return json(res, 401, { error: '관리자 키를 확인하세요.' });
         if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, engine.snapshot());
         if (url.pathname === '/api/connection' && req.method === 'GET') return json(res, 200, {
-          overlayToken: keys.overlay, sources: connections.data.sources, youtube: connections.metadata(),
-          providers: PROVIDERS.map(provider => provider === 'youtube' ? { provider, ...youtube.status, configured: youtube.configured() } : {
-            provider, state: 'bridge_required', detail: '공식 계정 자동 연결 미구현 · 서명된 후원 브리지 필요', configured: false
-          })
+          overlayToken: keys.overlay, sources: connections.data.sources, youtube: connections.metadata(), chzzk: connections.chzzkMetadata(), soop: { enabled: connections.data.soop.enabled }, toonation: { widgetConfigured: Boolean(connections.data.toonation.widgetUrl) },
+          providers: PROVIDERS.map(provider => ({ provider, ...connectors[provider].status, configured: connectors[provider].configured(),
+            mode: ({ chzzk: connections.data.chzzk.mode === 'oauth' ? 'official_oauth' : 'public_chat', soop: 'public_chat', youtube: 'official_oauth', toonation: 'alert_widget' })[provider] }))
         });
         if (req.method === 'POST') {
           const value = JSON.parse((await body(req)).toString('utf8'));
-          if (url.pathname === '/api/sources') { connections.setSources(value); restartYouTube(); return json(res, 200, { saved: true }); }
-          if (url.pathname === '/api/youtube/app') { connections.setApp(value); restartYouTube(); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/sources') { const previous = { ...connections.data.sources }; connections.setSources(value); for (const provider of PROVIDERS) if (previous[provider] !== connections.data.sources[provider]) restartProvider(provider); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/youtube/app') { connections.setApp(value); restartProvider('youtube'); return json(res, 200, { saved: true }); }
           if (url.pathname === '/api/youtube/authorize') return json(res, 200, { url: connections.authorize() });
-          if (url.pathname === '/api/youtube/disconnect') { connections.disconnect(); restartYouTube(); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/youtube/disconnect') { connections.disconnect(); restartProvider('youtube'); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/chzzk/connection') { connections.setChzzkPublicEnabled(value.enabled); restartProvider('chzzk'); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/chzzk/app') { connections.setChzzkApp(value); restartProvider('chzzk'); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/chzzk/authorize') return json(res, 200, { url: connections.authorizeChzzk() });
+          if (url.pathname === '/api/chzzk/disconnect') { connections.disconnectChzzk(); restartProvider('chzzk'); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/soop/connection') { connections.setSoopEnabled(value.enabled); restartProvider('soop'); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/toonation/widget') { connections.setToonationWidget(value.widgetUrl); restartProvider('toonation'); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/provider/reconnect') { if (!PROVIDERS.includes(value.provider)) throw new InputError('플랫폼을 확인하세요.'); restartProvider(value.provider); return json(res, 200, { restarted: true }); }
           if (url.pathname === '/api/config') return json(res, 200, engine.updateConfig(value));
           if (url.pathname === '/api/balance') return json(res, 200, engine.setBalance(value.balance));
           if (url.pathname === '/api/test-donation') return json(res, 200, engine.receive(value.provider, {
@@ -117,9 +138,9 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
       return json(res, 500, { error: '서버 오류가 발생했습니다. 서버 로그를 확인하세요.' });
     }
   });
-  engine.start(); youtube.start();
-  server.on('close', () => { engine.close(); youtube.stop(); engine.off('state', send); });
-  return { server, engine, get youtube() { return youtube; }, keys, close: () => { engine.close(); youtube.stop(); for (const client of clients) client.res.end(); server.close(); } };
+  engine.start(); for (const connector of Object.values(connectors)) connector.start();
+  server.on('close', () => { engine.close(); stopProviders(); engine.off('state', send); });
+  return { server, engine, get youtube() { return connectors.youtube; }, connectors, keys, close: () => { engine.close(); stopProviders(); for (const client of clients) client.res.end(); server.close(); } };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

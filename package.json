@@ -5,12 +5,16 @@
   "type": "module",
   "description": "실시간 후원 메소 룰렛과 OBS 브라우저 오버레이",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test",
-    "check": "node --check src/server.js && node --check src/engine.js && node --check src/youtube.js && node --check src/connections.js && node --check public/dashboard.js && node --check public/overlay.js"
+    "check": "node --check src/server.js && node --check src/engine.js && node --check src/youtube.js && node --check src/connections.js && node --check public/dashboard.js && node --check public/overlay.js && node --check src/chzzk.js && node --check src/soop.js && node --check src/toonation.js && node --check src/realtime.js && node --check src/chzzk-public.js"
+  },
+  "dependencies": {
+    "soop-chat": "0.6.0",
+    "ws": "8.21.3"
   }
 }

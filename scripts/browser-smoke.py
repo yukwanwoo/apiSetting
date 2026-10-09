@@ -76,8 +76,24 @@ def smoke(base, data_dir, artifacts):
   page.locator('#source-youtube').fill('https://www.youtube.com/watch?v=abcdefghijk')
   page.locator('#source-form button').click()
   page.wait_for_function("() => document.getElementById('notice').textContent.includes('방송 URL을 저장')")
-  assert '브리지 필요' in page.locator('#provider-cards').inner_text()
-  assert '인증 필요' in page.locator('#provider-cards').inner_text()
+  assert '연결 필요' in page.locator('#provider-cards').inner_text()
+  assert page.locator('#chzzk-connect').is_disabled()
+  assert page.locator('#chzzk-url-connect').is_disabled()
+  assert page.locator('#youtube-connect').is_disabled()
+  page.locator('#toonation-widget-url').fill('https://toon.at/donate/abcdefghijk')
+  page.locator('#toonation-widget-form button').click()
+  page.wait_for_function("() => document.getElementById('notice').textContent.includes('알림 위젯 URL')")
+  page.locator('#toonation-widget-url').fill('')
+  assert '연결 필요' in page.locator('#provider-cards').inner_text()
+  page.locator('#operator-settings summary').click()
+  page.locator('#chzzk-client-id').fill('browser-fixture-client-id')
+  page.locator('#chzzk-client-secret').fill('browser-fixture-secret')
+  page.locator('#chzzk-app-form button').click()
+  page.wait_for_function("() => document.getElementById('notice').textContent.includes('치지직 앱 설정을 저장')")
+  assert page.locator('#chzzk-client-secret').input_value() == ''
+  assert page.locator('#chzzk-connect').is_enabled()
+  assert '/oauth/chzzk/callback' in page.locator('#chzzk-redirect').input_value()
+  page.locator('#operator-settings summary').click()
   # Screenshots must not expose read-only overlay keys.
   page.locator('#roulette-url').evaluate("el=>el.value='OBS에서 사용할 읽기 전용 주소'")
   page.locator('#meso-url').evaluate("el=>el.value='OBS에서 사용할 읽기 전용 주소'")
@@ -97,7 +113,7 @@ if __name__ == '__main__':
  with socket.socket() as probe:
   probe.bind(('127.0.0.1',0)); port=probe.getsockname()[1]
  with tempfile.TemporaryDirectory(prefix='meso-ui-') as data_dir:
-  runtime={k:v for k,v in os.environ.items() if not k.startswith('YOUTUBE_') and k not in ['PUBLIC_BASE_URL','ADMIN_TOKEN','OVERLAY_TOKEN','WEBHOOK_SECRET']}
+  runtime={k:v for k,v in os.environ.items() if not k.startswith(('YOUTUBE_', 'CHZZK_')) and k not in ['PUBLIC_BASE_URL','ADMIN_TOKEN','OVERLAY_TOKEN','WEBHOOK_SECRET']}
   runtime.update(HOST='127.0.0.1',PORT=str(port),DATA_DIR=data_dir)
   server=subprocess.Popen(['node','src/server.js'],cwd=root,env=runtime,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
   base=f'http://127.0.0.1:{port}'

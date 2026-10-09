@@ -20,7 +20,7 @@ test('HTTP auth separation: overlay token cannot edit admin settings or read con
   assert.equal((await request(`/api/connection?token=${keys.overlay}`, undefined, false)).status, 401);
   const state = await (await request('/api/state')).json(); assert.equal(state.balance, 30000000);
   assert.equal((await request('/api/config', state.config, false)).status, 401);
-  const providers = (await (await request('/api/connection')).json()).providers; assert.equal(providers[0].state, 'bridge_required'); assert.equal(providers[2].state, 'not_configured');
+  const providers = (await (await request('/api/connection')).json()).providers; assert.equal(providers[0].state, 'not_configured'); assert.equal(providers[2].state, 'not_configured');
 });
 test('signed webhook accepts normalized real donation, rejects forgery/replay timestamp, deduplicates', async t => {
   const { base, app } = await setup(t); const raw = JSON.stringify({ eventId: 'real-1', nickname: '별 시청자', unit: 'STAR', amount: 10 });
@@ -52,8 +52,8 @@ test('API settings and custom exact amounts persist, malformed JSON/invalid rule
   assert.equal(app.engine.data.active.roulette.triggerKrw, 3300);
   state.config.roulettes[0].prizes[0].weight--; assert.equal((await request('/api/config', state.config)).status, 400);
 });
-test('source URLs are saved but do not falsely mark bridges as connected', async t => {
-  const { request } = await setup(t); const sources = { chzzk: 'https://chzzk.naver.com/live/test', youtube: 'https://www.youtube.com/watch?v=abcdefghijk' };
+test('source URLs are saved without claiming a live receiver is authenticated', async t => {
+  const { request } = await setup(t); const sources = { chzzk: 'https://chzzk.naver.com/live/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', youtube: 'https://www.youtube.com/watch?v=abcdefghijk' };
   assert.equal((await request('/api/sources', sources)).status, 200); const info = await (await request('/api/connection')).json(); assert.equal(info.sources.youtube, sources.youtube); assert.equal(info.providers[0].configured, false);
   assert.equal((await request('/api/sources', { youtube: 'https://example.com/watch?v=abcdefghijk' })).status, 400);
 });

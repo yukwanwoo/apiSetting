@@ -4,7 +4,9 @@ Node.js 기반 후원 메소 룰렛과 OBS 브라우저 오버레이입니다. �
 
 ## Windows 11 64비트 배포본
 
-[0.7.0 Release](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.7.0)에서 ZIP을 내려받아 압축을 풀고 `MesoLiveRoulette-0.7.0-win-x64.exe`를 실행하세요. Node.js 설치나 관리자 권한 없이 브라우저 관리 화면이 자동으로 열립니다. 방송 중에는 실행 창을 열어 두세요.
+[0.0.8 Release](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.0.8)에서 ZIP을 내려받아 압축을 풀고 `MesoLiveRoulette-0.0.8-win-x64.exe`를 실행하세요. Node.js 설치나 관리자 권한 없이 브라우저 관리 화면이 자동으로 열립니다. 방송 중에는 실행 창을 열어 두세요.
+
+0.0.8은 Windows 기본 브라우저 실행 방식을 수정해 실행할 때 내 문서가 열리는 문제를 해결합니다.
 
 라이브 스튜디오는 상태 카드 → 후원·메소 내역 → 수동 증감·잔액 관리 순서입니다. 바로 아래 **오버레이 설정** 탭에서 OBS 주소, 룰렛 미리보기·크기·코멘트, 테스트 후원과 OBS 안내를 사용합니다. **방송연결** 탭에서 플랫폼 후원을 연결합니다. 알림음 선택·업로드·구간 편집과 저장 후 종료를 유지합니다.
 

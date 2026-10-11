@@ -1,7 +1,7 @@
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isSea } from 'node:sea';
-import { spawn } from 'node:child_process';
+import { openBrowser } from './browser.js';
 import { createApp } from './server.js';
 import { preparePortableData } from './portable.js';
 
@@ -26,9 +26,7 @@ try {
     console.log('브라우저를 다시 열 때 관리자 키는 저장 위치의 keys.json > admin 항목을 사용하세요.');
     if (!process.argv.includes('--no-browser')) {
       const url = `http://127.0.0.1:3000/#admin=${app.keys.admin}`;
-      const browser = spawn(process.platform === 'win32' ? 'explorer.exe' : 'xdg-open', [url], { stdio: 'ignore', detached: true });
-      browser.on('error', () => console.error('브라우저를 자동으로 열지 못했습니다. http://127.0.0.1:3000 을 직접 여세요.'));
-      browser.unref();
+      openBrowser(url, () => console.error('브라우저를 자동으로 열지 못했습니다. http://127.0.0.1:3000 을 직접 여세요.'));
     }
   });
   const stop = () => { app.close(); setTimeout(() => process.exit(0), 1000).unref(); };

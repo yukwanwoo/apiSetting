@@ -9,7 +9,7 @@ const preview = params.get('preview') === '1';
 if (preview) document.body.classList.add('preview-mode');
 const providers = { chzzk: '치지직', soop: 'SOOP', youtube: 'YouTube', toonation: '투네이션' };
 const colors = ['#7260b8', '#354763', '#497758', '#54649a', '#74608b', '#9c744c', '#a4bc57'];
-let state, offset = 0, frame, lastBalance, hideTimer, lastSoundId;
+let state, receivedState, previewDraft, offset = 0, frame, lastBalance, hideTimer, lastSoundId;
 const samplePrizes = Array.from({ length: 11 }, (_, i) => ({ meso: i * 1000000, weight: i === 0 ? 90 : 91 }));
 const alertSound = new SoundPlayer();
 function hideRoulette() { alertSound.stop(); cancelAnimationFrame(frame); document.querySelector('.roulette-overlay').hidden = true; }
@@ -40,6 +40,11 @@ function spinAngle(active, now) {
 }
 function animate() { if (!state?.active || mesoView) return; draw(state.active.roulette.prizes, spinAngle(state.active, Date.now() + offset), state.active.roulette.kind === 'defense'); if (Date.now() + offset < state.active.endsAt) frame = requestAnimationFrame(animate); }
 function update(next) {
+  receivedState = next;
+  if (preview && !mesoView && previewDraft) {
+    const active = next.active?.roulette.id === previewDraft.roulette.id ? { ...next.active, roulette: { ...next.active.roulette, comments: previewDraft.roulette.comments } } : null;
+    next = { ...next, active, overlay: previewDraft.overlay, previewRoulette: previewDraft.roulette };
+  }
   offset = next.serverTime - Date.now(); state = next;
   if (mesoView) {
     $('meso-balance').replaceChildren(document.createTextNode(`${fmt(state.balance)} `)); const small = document.createElement('small'); small.textContent = '메소'; $('meso-balance').append(small);
@@ -52,7 +57,7 @@ function update(next) {
   clearTimeout(hideTimer);
   const active = state.active;
   const panel = document.querySelector('.roulette-overlay');
-  panel.style.transform = `scale(${(state.overlay?.scalePercent ?? 100) / 100})`;
+  document.querySelector('.wheel-wrap').style.setProperty('--wheel-scale', String((state.overlay?.scalePercent ?? 100) / 100));
   panel.hidden = !active && !preview;
   if (!active) {
     alertSound.stop();
@@ -84,6 +89,13 @@ function update(next) {
   } else { $('result-label').textContent = 'GOOD LUCK'; $('result-amount').textContent = '행운을 뽑는 중…'; $('result-note').textContent = state.queueLength ? `다음 ${state.queueLength}건 대기 중` : ''; }
   animate();
 }
+if (preview && !mesoView) window.addEventListener('message', event => {
+  if (event.origin !== location.origin || event.source !== window.parent || event.data?.type !== 'meso-preview-draft') return;
+  const { roulette, overlay } = event.data;
+  if (!roulette || !Array.isArray(roulette.prizes) || !roulette.comments || !['heading', 'donor', 'donation'].every(key => typeof roulette.comments[key] === 'string') || !Number.isInteger(overlay?.scalePercent) || overlay.scalePercent < 25 || overlay.scalePercent > 150) return;
+  previewDraft = { roulette, overlay };
+  if (receivedState) update({ ...receivedState, serverTime: Date.now() + offset });
+});
 if (!mesoView) { document.querySelector('.roulette-overlay').hidden = !preview; draw(samplePrizes); }
 if (!token) { $('overlay-connection').textContent = '관리자 대시보드에서 OBS 주소를 복사하세요.'; }
 else {

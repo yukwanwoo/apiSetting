@@ -33,7 +33,21 @@ function renderState(next) {
   if (!draft || !dirty) { draft = structuredClone(state.config); if (!draft.roulettes.some(r => r.id === currentId)) currentId = draft.roulettes[0].id; renderEditor(); }
 }
 function roulette() { return draft.roulettes.find(r => r.id === currentId); }
-function fillSelect() { $('roulette-select').replaceChildren(...draft.roulettes.map(r => { const option = document.createElement('option'); option.value = r.id; option.textContent = r.name + (r.enabled ? '' : ' · 비활성'); return option; })); $('roulette-select').value = currentId; }
+function fillSelect() {
+  for (const id of ['roulette-select', 'appearance-select']) {
+    $(id).replaceChildren(...draft.roulettes.map(r => { const option = document.createElement('option'); option.value = r.id; option.textContent = r.name + (r.enabled ? '' : ' · 비활성'); return option; }));
+    $(id).value = currentId;
+  }
+}
+function updatePreview() {
+  if (!draft || !$('preview').contentWindow) return;
+  const r = structuredClone(roulette());
+  if (!r.prizes.every(p => Number.isFinite(p.meso) && p.meso >= 0 && Number.isFinite(p.weight) && p.weight >= 0) || r.prizes.reduce((sum, p) => sum + p.weight, 0) !== 1000) r.prizes = structuredClone(state.config.roulettes.find(saved => saved.id === r.id)?.prizes ?? state.config.roulettes[0].prizes);
+  const scalePercent = Number.isInteger(draft.overlay.scalePercent) && draft.overlay.scalePercent >= 25 && draft.overlay.scalePercent <= 150 ? draft.overlay.scalePercent : state.config.overlay.scalePercent;
+  $('preview').style.height = `${180 + 260 * scalePercent / 100}px`;
+  $('preview').contentWindow.postMessage({ type: 'meso-preview-draft', roulette: r, overlay: { scalePercent } }, location.origin);
+}
+$('preview').addEventListener('load', updatePreview);
 function renderEditor() {
   const r = roulette(); fillSelect(); $('roulette-name').value = r.name; $('roulette-kind').value = r.kind; $('roulette-enabled').checked = r.enabled;
   $('roulette-unit').value = 'KRW'; $('roulette-amount').value = r.triggerKrw; $('roulette-duration').value = r.durationMs / 1000; $('roulette-hold').value = r.resultHoldMs / 1000;
@@ -41,7 +55,7 @@ function renderEditor() {
   for (const key of ['heading', 'donor', 'donation']) $(`comment-${key}`).value = r.comments[key];
   renderSoundEditor();
   $('sound-volume').value = draft.sound.volume; $('sound-volume-label').textContent = `${draft.sound.volume}%`;
-  $('allow-negative').checked = draft.allowNegative; $('initial-balance').value = draft.initialBalance; renderPrizes(); ruleConversion(); $('save-config').textContent = dirty ? '변경사항 저장' : '설정 저장';
+  $('allow-negative').checked = draft.allowNegative; $('initial-balance').value = draft.initialBalance; renderPrizes(); ruleConversion(); updateSaveLabels(); updatePreview();
 }
 function renderPrizes() {
   $('prize-rows').replaceChildren(...roulette().prizes.map(p => {
@@ -56,7 +70,8 @@ function renderPrizes() {
   })); probability();
 }
 function probability() { const total = roulette().prizes.reduce((sum, p) => sum + p.weight, 0); $('probability-total').textContent = Number.isFinite(total) ? `합계 ${(total / 10).toFixed(1)}%` : '0.1% 단위로 입력하세요'; $('probability-total').className = `pill ${total === 1000 ? 'good' : 'bad'}`; }
-function markDirty() { dirty = true; $('save-config').textContent = '변경사항 저장'; }
+function updateSaveLabels() { for (const id of ['save-config', 'save-studio-config']) $(id).textContent = dirty ? '변경사항 저장' : '설정 저장'; }
+function markDirty() { dirty = true; updateSaveLabels(); updatePreview(); }
 function ruleConversion() { const amount = Number($('roulette-amount').value), krw = amount * ($('roulette-unit').value === 'STAR' ? 100 : 1); roulette().triggerKrw = krw; $('rule-conversion').textContent = `${fmt(krw)}원 = 별풍선 ${fmt(krw / 100)}개 · 정확히 이 금액만 1회 실행`; }
 function tab(name) { document.querySelectorAll('.tab-section').forEach(el => { el.hidden = el.id !== `tab-${name}`; }); document.querySelectorAll('[data-tab]').forEach(el => el.classList.toggle('active', el.dataset.tab === name)); const titles = { studio: ['라이브 스튜디오', '후원의 순간을 메소로 연결하세요.'], settings: ['룰렛 설정', '확률부터 후원 조건까지, 방송에 맞게 설계하세요.'], connections: ['연결 & OBS', '후원을 연결하고, 방송 화면에 행운을 띄우세요.'] }; $('page-title').textContent = titles[name][0]; $('page-subtitle').textContent = titles[name][1]; }
 async function connections() {
@@ -113,8 +128,8 @@ $('login-form').addEventListener('submit', async event => { event.preventDefault
 async function shutdown() {
   if (uploading) return notice('음성 파일 업로드가 끝난 후 종료하세요.', true);
   if (stopping || !confirm('현재 값들을 저장하고 종료하겠습니까?\n후원 수신과 OBS 표시도 종료됩니다.')) return;
-  const invalid = document.querySelector('#tab-settings input:invalid');
-  if (invalid) { tab('settings'); invalid.reportValidity(); return; }
+  const invalid = document.querySelector('#tab-settings input:invalid, .preview-controls input:invalid, .studio-balance-card input:invalid');
+  if (invalid) { tab(invalid.closest('#tab-settings') ? 'settings' : 'studio'); invalid.reportValidity(); return; }
   stopping = true;
   try {
     await api('/api/shutdown', { config: draft, sources: Object.fromEntries(Object.keys(names).map(provider => [provider, $(`source-${provider}`).value])) });
@@ -133,7 +148,7 @@ $('test-provider').addEventListener('change', () => { $('test-unit').options[1].
 function testConversion() { const amount = Number($('test-amount').value) * ($('test-unit').value === 'STAR' ? 100 : 1); $('test-conversion').textContent = `${fmt(amount)}원 · 조건 금액과 정확히 일치할 때 1회 실행`; }
 $('test-amount').addEventListener('input', testConversion); $('test-unit').addEventListener('change', testConversion);
 $('test-form').addEventListener('submit', async event => { event.preventDefault(); const button = event.submitter; button.disabled = true; try { const result = await api('/api/test-donation', { provider: $('test-provider').value, nickname: $('test-nickname').value, amount: Number($('test-amount').value), unit: $('test-unit').value }); notice(result.matched ? '테스트 후원을 접수했습니다. 룰렛이 순서대로 실행됩니다.' : '후원을 수신했지만 정확히 일치하는 활성 룰렛이 없습니다.'); } catch (error) { notice(error.message, true); } finally { button.disabled = false; } });
-$('roulette-select').addEventListener('change', () => { currentId = $('roulette-select').value; renderEditor(); });
+for (const id of ['roulette-select', 'appearance-select']) $(id).addEventListener('change', () => { soundPreview.stop(); currentId = $(id).value; renderEditor(); });
 $('roulette-name').addEventListener('input', () => { roulette().name = $('roulette-name').value; markDirty(); });
 $('roulette-kind').addEventListener('change', () => { roulette().kind = $('roulette-kind').value; markDirty(); });
 $('roulette-enabled').addEventListener('change', () => { roulette().enabled = $('roulette-enabled').checked; markDirty(); });
@@ -203,7 +218,16 @@ $('allow-negative').addEventListener('change', () => { draft.allowNegative = $('
 $('add-prize').addEventListener('click', () => { if (roulette().prizes.length >= 100) return notice('항목은 100개까지 가능합니다.', true); roulette().prizes.push({ id: newId('prize'), meso: 0, weight: 0 }); markDirty(); renderPrizes(); });
 $('add-roulette').addEventListener('click', () => { if (draft.roulettes.length >= 20) return notice('룰렛은 20개까지 가능합니다.', true); currentId = newId('roulette'); draft.roulettes.push({ id: currentId, name: '새 룰렛', kind: 'attack', enabled: false, comments: { ...DEFAULT_COMMENTS }, sound: { source: 'default', startMs: 0, endMs: null }, triggerKrw: 3000, durationMs: 1000, resultHoldMs: 1500, prizes: [{ id: newId('prize'), meso: 0, weight: 1000 }] }); markDirty(); renderEditor(); });
 $('delete-roulette').addEventListener('click', () => { if (draft.roulettes.length === 1) return notice('룰렛은 최소 한 개 필요합니다.', true); draft.roulettes = draft.roulettes.filter(r => r.id !== currentId); currentId = draft.roulettes[0].id; markDirty(); renderEditor(); });
-$('save-config').addEventListener('click', async () => { if (uploading) return notice('음성 파일 업로드가 끝난 후 저장하세요.', true); const invalid = document.querySelector('#tab-settings input:invalid'); if (invalid) { invalid.reportValidity(); return; } const button = $('save-config'); button.disabled = true; try { const next = await api('/api/config', draft); dirty = false; renderState(next); notice('룰렛 설정을 저장했습니다.'); } catch (error) { notice(error.message, true); } finally { button.disabled = false; } });
+async function saveConfig(event) {
+  if (uploading) return notice('음성 파일 업로드가 끝난 후 저장하세요.', true);
+  const invalid = document.querySelector('#tab-settings input:invalid, #preview input:invalid, .preview-controls input:invalid, .studio-balance-card input:invalid');
+  if (invalid) { tab(invalid.closest('#tab-settings') ? 'settings' : 'studio'); invalid.reportValidity(); return; }
+  const button = event.currentTarget; button.disabled = true;
+  try { const next = await api('/api/config', draft); dirty = false; renderState(next); notice('룰렛 설정을 저장했습니다.'); }
+  catch (error) { notice(error.message, true); }
+  finally { button.disabled = false; }
+}
+for (const id of ['save-config', 'save-studio-config', 'save-balance-config']) $(id).addEventListener('click', saveConfig);
 $('adjust-form').addEventListener('submit', async event => { event.preventDefault(); const button = event.submitter; button.disabled = true; try { const amount = Number($('adjust-amount').value); renderState(await api('/api/balance/adjust', { delta: $('adjust-direction').value === 'subtract' ? -amount : amount, note: $('adjust-note').value })); notice('메소 증감을 반영했습니다.'); $('adjust-amount').value = ''; $('adjust-note').value = ''; } catch (error) { notice(error.message, true); } finally { button.disabled = false; } });
 $('balance-form').addEventListener('submit', async event => { event.preventDefault(); try { renderState(await api('/api/balance', { balance: Number($('balance-input').value) })); notice('메소 잔액을 변경했습니다.'); } catch (error) { notice(error.message, true); } });
 $('refresh-connections').addEventListener('click', () => { connections().catch(error => notice(error.message, true)); });

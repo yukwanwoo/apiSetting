@@ -39,6 +39,27 @@ def smoke(base, data_dir, artifacts):
   obs.goto(page.locator('#roulette-url').input_value())
   assert obs.locator('.roulette-overlay').is_hidden()
   page.frame_locator('#preview').locator('#wheel').wait_for()
+  assert page.locator('#tab-studio #comment-donor').count()==1
+  assert page.locator('#tab-studio #overlay-scale').count()==1
+  assert page.locator('#tab-studio #balance-form').count()==1
+  preview_frame=page.frame_locator('#preview')
+  baseline=preview_frame.locator('.wheel-wrap').bounding_box()['width']
+  donor_font=preview_frame.locator('#overlay-donor').evaluate('el=>getComputedStyle(el).fontSize')
+  result_font=preview_frame.locator('#result-amount').evaluate('el=>getComputedStyle(el).fontSize')
+  page.locator('#overlay-scale').fill('50')
+  page.locator('#comment-donor').fill('{nickname} 즉시 미리보기 · {roulette}')
+  preview_frame.locator('#overlay-donor').get_by_text('행운의 시청자 즉시 미리보기 · 공격 룰렛',exact=True).wait_for()
+  assert abs(preview_frame.locator('.wheel-wrap').bounding_box()['width']/baseline-.5)<.02
+  assert preview_frame.locator('#overlay-donor').evaluate('el=>getComputedStyle(el).fontSize')==donor_font
+  assert preview_frame.locator('#result-amount').evaluate('el=>getComputedStyle(el).fontSize')==result_font
+  assert json.loads(Path(data_dir,'state.json').read_text())['config']['overlay']['scalePercent']==100
+  assert obs.locator('.wheel-wrap').evaluate("el=>el.style.getPropertyValue('--wheel-scale')")=='1'
+  page.locator('#appearance-select').select_option('defense')
+  preview_frame.locator('#overlay-donor').get_by_text('행운의 시청자님의 방어 룰렛',exact=True).wait_for()
+  page.locator('#appearance-select').select_option('attack')
+  page.locator('#preview').evaluate('el=>el.contentWindow.location.reload()')
+  preview_frame.locator('#overlay-donor').get_by_text('행운의 시청자 즉시 미리보기 · 공격 룰렛',exact=True).wait_for()
+
   page.screenshot(path=str(Path(artifacts, 'studio-desktop.png')),full_page=True)
   page.locator('[data-tab=settings]').click()
   assert page.locator('#sound-end').input_value()=='2.5'
@@ -75,9 +96,11 @@ def smoke(base, data_dir, artifacts):
   page.locator('#sound-auto-end').uncheck()
   page.locator('#sound-start').fill('1')
   page.locator('#sound-end').fill('1.5')
+  page.locator('[data-tab=studio]').click()
   page.locator('#overlay-scale').fill('50')
   page.locator('#comment-donor').fill('{nickname} 등장! {roulette}')
   page.locator('#comment-donation').fill('{platform} {amount}원{stars}')
+  page.locator('[data-tab=settings]').click()
   page.locator('#roulette-amount').fill('3300')
   page.locator('#roulette-duration').fill('0.6')
   page.locator('#roulette-hold').fill('3')
@@ -92,7 +115,8 @@ def smoke(base, data_dir, artifacts):
   page.locator('#save-config').click()
   page.wait_for_function("() => document.getElementById('notice').textContent.includes('100%')")
   page.locator('#prize-rows input').nth(1).fill('100')
-  page.locator('#save-config').click()
+  page.locator('[data-tab=studio]').click()
+  page.locator('#save-studio-config').click()
   page.wait_for_function("() => document.getElementById('notice').textContent === '룰렛 설정을 저장했습니다.'")
   assert page.locator('#allow-negative').is_checked()
   assert page.locator('#initial-balance').input_value()=='30000000'
@@ -109,7 +133,10 @@ def smoke(base, data_dir, artifacts):
   assert obs.evaluate('audioPlays[0].start')==1, obs.evaluate('audioPlays')
   assert '행운의 시청자 등장! 공격 룰렛' in obs.locator('#overlay-donor').inner_text()
   assert 'SOOP 3,300원' in obs.locator('#overlay-donation').inner_text()
-  assert obs.locator('.roulette-overlay').evaluate('el=>el.style.transform')=='scale(0.5)'
+  assert obs.locator('.roulette-overlay').evaluate('el=>getComputedStyle(el).transform')=='none'
+  assert abs(obs.locator('.wheel-wrap').bounding_box()['width']-220)<1
+  assert obs.locator('#overlay-donor').evaluate('el=>getComputedStyle(el).fontSize')=='23px'
+  assert obs.locator('#result-amount').evaluate('el=>getComputedStyle(el).fontSize')=='25px'
   obs.wait_for_function('() => window.lastAudio.paused')
   assert 1.3 <= obs.evaluate('window.lastAudio.currentTime') <= 1.8
   page.wait_for_function("() => document.getElementById('balance').textContent === '31,000,000'")
@@ -136,6 +163,14 @@ def smoke(base, data_dir, artifacts):
   page.locator('#adjust-form button').click()
   page.wait_for_function("() => document.getElementById('balance').textContent === '31,000,000'")
   assert '수동 메소 감소' in page.locator('#history').inner_text()
+  page.locator('#initial-balance').fill('30000001')
+  with page.expect_response(lambda r:r.url.endswith('/api/config') and r.request.method=='POST') as saved_balance:
+   page.locator('#save-balance-config').click()
+  assert saved_balance.value.json()['config']['initialBalance']==30000001
+  assert page.locator('#balance').inner_text()=='31,000,000'
+  page.locator('#initial-balance').fill('30000000')
+  with page.expect_response(lambda r:r.url.endswith('/api/config') and r.request.method=='POST'):
+   page.locator('#save-balance-config').click()
   page.locator('[data-tab=settings]').click()
   page.locator('#roulette-select').select_option('defense')
   page.locator('#roulette-amount').fill('2200')
@@ -147,6 +182,7 @@ def smoke(base, data_dir, artifacts):
   page.locator('#prize-rows input').nth(1).fill('100')
   page.locator('#save-config').click()
   page.wait_for_function("() => document.getElementById('notice').textContent === '룰렛 설정을 저장했습니다.'")
+  page.locator('[data-tab=studio]').click()
   page.locator('#balance-input').fill('0')
   page.locator('#balance-form button').click()
   page.wait_for_function("() => document.getElementById('balance').textContent === '0'")
@@ -160,7 +196,7 @@ def smoke(base, data_dir, artifacts):
   page.reload()
   page.locator('#app').wait_for(state='visible')
   assert page.locator('#balance').inner_text()=='-10,000,000'
-  page.locator('[data-tab=settings]').click()
+  page.locator('[data-tab=studio]').click()
   page.locator('#reset-balance').click()
   page.wait_for_function("() => document.getElementById('balance').textContent === '30,000,000'")
   page.locator('[data-tab=connections]').click()
@@ -193,7 +229,7 @@ def smoke(base, data_dir, artifacts):
   page.set_viewport_size({'width':390,'height':844})
   page.screenshot(path=str(Path(artifacts, 'studio-mobile.png')),full_page=True)
   assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-  page.locator('[data-tab=settings]').click()
+  page.locator('[data-tab=studio]').click()
   page.locator('#overlay-scale').fill('60')
   page.once('dialog',lambda d:d.dismiss())
   page.locator('#shutdown').click()
@@ -206,7 +242,7 @@ def smoke(base, data_dir, artifacts):
   assert saved['config']['roulettes'][0]['sound']['source']==uploaded_id
   assert saved['balance']==30000000
   assert not errors, errors
-  print('Browser smoke passed: login, preview, probabilities, custom amount, SOOP conversion, attack, defense, negative balance, persistence, initial reset, URL settings, OBS balance, mobile layout, scale, comment templates, audio upload/automatic trim/custom trim/chime, manual adjustments, cancel/confirm save-and-exit; no JS exceptions.')
+  print('Browser smoke passed: login, preview, probabilities, custom amount, SOOP conversion, attack, defense, negative balance, persistence, initial reset, URL settings, OBS balance, mobile layout, immediate unsaved preview, wheel-only scaling with unchanged text/result, studio appearance and balance controls, comment templates, audio upload/automatic trim/custom trim/chime, manual adjustments, cancel/confirm save-and-exit; no JS exceptions.')
   browser.close()
 
 if __name__ == '__main__':

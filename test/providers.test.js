@@ -81,7 +81,7 @@ test('SOOP uses real event schema, does not use fanOrder for dedup, skips VOD an
   const connector = new SoopConnector(engine, connections, { chatFactory: options => { assert.equal(options.streamerId, 'streamer1'); chat = new FakeChat(); return chat; } }); t.after(() => connector.stop()); connector.start(); await until(() => connector.status.state === 'listening');
   for (let i = 0; i < 2; i++) chat.emit('event', { type: 'sendBalloon', data: { streamerId: 'streamer1', senderNickname: '별풍선 후원자', count: 10, fanOrder: 1 } });
   assert.equal(engine.data.donations.length, 2); assert.equal(engine.data.active.donation.amountKrw, 1000);
-  chat.emit('event', { type: 'videoBalloon', data: { streamerId: 'streamer1', senderNickname: '영상 후원자', balloonCount: 20 } }); assert.equal(engine.data.queue.at(-1).roulette.kind, 'defense');
+  chat.emit('event', { type: 'videoBalloon', data: { streamerId: 'streamer1', senderNickname: '영상 후원자', balloonCount: 11 } }); assert.equal(engine.data.queue.at(-1).roulette.kind, 'defense');
   chat.emit('event', { type: 'vodBalloon', data: { count: 1000 } }); assert.equal(engine.data.donations.length, 3);
   const oldChat = chat; connector.stop(); oldChat.emit('event', { type: 'sendBalloon', data: { streamerId: 'streamer1', senderNickname: 'late', count: 10 } }); assert.equal(engine.data.donations.length, 3);
 });

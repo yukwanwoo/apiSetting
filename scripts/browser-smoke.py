@@ -8,6 +8,15 @@ def smoke(base, data_dir, artifacts):
   browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium') or shutil.which('google-chrome'), headless=True, args=['--no-sandbox'])
   page=browser.new_page(viewport={'width':1440,'height':1100},device_scale_factor=1)
   errors=[]
+  browser_play = """(() => {
+    window.audioPlays=[];
+    const original=HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play=function(){
+      window.audioPlays.push({volume:this.volume,src:this.src});
+      return original.call(this);
+    };
+  })();"""
+  page.add_init_script(browser_play)
   page.on('pageerror', lambda e: errors.append(str(e)))
   page.goto(base)
   key=json.loads(Path(data_dir, 'keys.json').read_text())['admin']
@@ -23,12 +32,22 @@ def smoke(base, data_dir, artifacts):
   page.locator('#app').wait_for(state='visible')
   page.wait_for_function("() => document.getElementById('server-status').textContent === '실시간 연결됨'")
   assert page.locator('#balance').inner_text()=='30,000,000'
+  obs_context=browser.new_context()
+  obs_context.add_init_script(browser_play)
+  obs=obs_context.new_page()
+  obs.on('pageerror',lambda e: errors.append(str(e)))
+  obs.goto(page.locator('#roulette-url').input_value())
+  assert obs.locator('.roulette-overlay').is_hidden()
   page.frame_locator('#preview').locator('#wheel').wait_for()
   page.screenshot(path=str(Path(artifacts, 'studio-desktop.png')),full_page=True)
   page.locator('[data-tab=settings]').click()
   page.locator('#roulette-amount').fill('3300')
   page.locator('#roulette-duration').fill('0.6')
   page.locator('#roulette-hold').fill('3')
+  page.locator('#sound-volume').evaluate("el=>{el.value='35';el.dispatchEvent(new Event('input',{bubbles:true}));}")
+  assert page.locator('#sound-volume-label').inner_text()=='35%'
+  page.locator('#test-sound').click()
+  assert page.evaluate('audioPlays.at(-1).volume')==0.35
   while page.locator('.remove-prize').count()>1: page.locator('.remove-prize').last.click()
   page.locator('#prize-rows input').nth(0).fill('1000000')
   page.locator('#prize-rows input').nth(1).fill('99.9')
@@ -45,6 +64,9 @@ def smoke(base, data_dir, artifacts):
   page.locator('#test-unit').select_option('STAR')
   page.locator('#test-amount').fill('33')
   page.locator('#test-form button').click()
+  obs.locator('.roulette-overlay').wait_for(state='visible')
+  obs.wait_for_function('audioPlays.length===1')
+  assert obs.evaluate('audioPlays[0].volume')==0.35
   page.wait_for_function("() => document.getElementById('balance').textContent === '31,000,000'")
   assert '테스트' in page.locator('#history').inner_text()
   assert '+1,000,000' in page.frame_locator('#preview').locator('#result-amount').inner_text()
@@ -54,11 +76,17 @@ def smoke(base, data_dir, artifacts):
   meso.screenshot(path=str(Path(artifacts, 'meso-overlay.png')),omit_background=True)
   page.screenshot(path=str(Path(artifacts, 'spin-desktop.png')),full_page=True)
   page.wait_for_function("() => document.getElementById('spin-status').textContent === 'STANDBY'")
+  obs.locator('.roulette-overlay').wait_for(state='hidden')
+  assert obs.evaluate('audioPlays.length')==1
+  assert page.frame_locator('#preview').locator('.roulette-overlay').is_visible()
+  assert page.frame_locator('#preview').locator('body').evaluate('()=>audioPlays.length')==0
+  assert meso.locator('.meso-overlay').is_visible()
   page.locator('[data-tab=settings]').click()
   page.locator('#roulette-select').select_option('defense')
   page.locator('#roulette-amount').fill('2200')
   page.locator('#roulette-duration').fill('0.1')
   page.locator('#roulette-hold').fill('1')
+  page.locator('#sound-volume').evaluate("el=>{el.value='0';el.dispatchEvent(new Event('input',{bubbles:true}));}")
   while page.locator('.remove-prize').count()>1: page.locator('.remove-prize').last.click()
   page.locator('#prize-rows input').nth(0).fill('10000000')
   page.locator('#prize-rows input').nth(1).fill('100')
@@ -71,6 +99,7 @@ def smoke(base, data_dir, artifacts):
   page.locator('#test-amount').fill('22')
   page.locator('#test-form button').click()
   page.wait_for_function("() => document.getElementById('balance').textContent === '-10,000,000'")
+  assert obs.evaluate('audioPlays.length')==1
   meso.wait_for_function("() => document.getElementById('meso-balance').textContent.includes('-10,000,000')")
   page.wait_for_function("() => document.getElementById('spin-status').textContent === 'STANDBY'")
   page.reload()

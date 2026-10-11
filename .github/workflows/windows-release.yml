@@ -27,19 +27,15 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          Compress-Archive -Path "dist/MesoLiveRoulette-$version-win-x64.exe", "dist/사용설명서.txt", "dist/THIRD-PARTY-NOTICES.txt" -DestinationPath "dist/MesoLiveRoulette-$version-win-x64.zip"
+          Compress-Archive -Path "dist/MesoLiveRoulette-$version-win-x64" -DestinationPath "dist/MesoLiveRoulette-$version-win-x64.zip"
           $zip = "MesoLiveRoulette-$version-win-x64.zip"
           $hash = (Get-FileHash "dist/$zip" -Algorithm SHA256).Hash.ToLower()
-          Add-Content -Path dist/SHA256SUMS.txt -Value "$hash  $zip"
+          Get-Content docs/RELEASE.md -Raw | Set-Content dist/release-notes.md
+          Add-Content -Path dist/release-notes.md -Value "`nZIP SHA-256: $hash"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64-release
-          path: |
-            dist/*.exe
-            dist/*.zip
-            dist/SHA256SUMS.txt
-            dist/THIRD-PARTY-NOTICES.txt
-            dist/사용설명서.txt
+          path: dist/*.zip
           if-no-files-found: error
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -49,4 +45,4 @@ jobs:
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag/package version mismatch" }
-          gh release create $env:GITHUB_REF_NAME "dist/MesoLiveRoulette-$version-win-x64.exe" "dist/MesoLiveRoulette-$version-win-x64.zip" dist/SHA256SUMS.txt dist/THIRD-PARTY-NOTICES.txt --verify-tag --title "$version — Windows 11 x64" --notes-file docs/RELEASE.md
+          gh release create $env:GITHUB_REF_NAME "dist/MesoLiveRoulette-$version-win-x64.zip" --verify-tag --title "$version — Windows 11 x64" --notes-file dist/release-notes.md

@@ -11,13 +11,13 @@ export class InputError extends Error {}
 const requireInput = (ok, message) => { if (!ok) throw new InputError(message); };
 
 export function defaultConfig() {
-  const amounts = [0, 100_000, 500_000, 1_000_000, 3_000_000, 5_000_000, 10_000_000];
-  const weights = [300, 250, 200, 150, 60, 30, 10];
+  const amounts = Array.from({ length: 11 }, (_, i) => i * 1_000_000);
+  const weights = amounts.map((_, i) => i === 0 ? 90 : 91);
   return {
-    allowNegative: true, initialBalance: 30_000_000,
+    allowNegative: true, initialBalance: 30_000_000, sound: { volume: 50 },
     roulettes: ['attack', 'defense'].map((kind, i) => ({
       id: kind, name: i === 0 ? '공격 룰렛' : '방어 룰렛', kind,
-      triggerKrw: i === 0 ? 1000 : 2000, durationMs: 1000, resultHoldMs: 1500,
+      triggerKrw: i === 0 ? 1000 : 1100, durationMs: 1000, resultHoldMs: 1500,
       enabled: true,
       prizes: amounts.map((meso, j) => ({ id: `${kind}-${j}`, meso, weight: weights[j] }))
     }))
@@ -29,6 +29,8 @@ export function validateConfig(value) {
   requireInput(typeof value.allowNegative === 'boolean', '음수 허용 설정을 확인하세요.');
   requireInput(Array.isArray(value.roulettes) && value.roulettes.length > 0 && value.roulettes.length <= 20, '룰렛은 1~20개까지 설정할 수 있습니다.');
   requireInput(safeInteger(value.initialBalance, value.allowNegative ? -MAX_TOTAL : 0, MAX_TOTAL), '시작 메소 잔액 범위를 확인하세요.');
+  const sound = value.sound === undefined ? { volume: 50 } : value.sound;
+  requireInput(sound && safeInteger(sound.volume, 0, 100), '알림음 음량은 0~100의 정수입니다.');
   const ids = new Set(), amounts = new Set();
   const roulettes = value.roulettes.map(r => {
     requireInput(r && typeof r.id === 'string' && /^[a-zA-Z0-9_-]{1,50}$/.test(r.id) && !ids.has(r.id), '룰렛 ID가 유효하지 않거나 중복입니다.'); ids.add(r.id);
@@ -50,7 +52,7 @@ export function validateConfig(value) {
     requireInput(prizes.reduce((sum, p) => sum + p.weight, 0) === 1000, '룰렛 확률 합계가 정확히 100%여야 합니다.');
     return { id: r.id, name: r.name.trim(), kind: r.kind, triggerKrw: r.triggerKrw, durationMs: r.durationMs, resultHoldMs: r.resultHoldMs, enabled: r.enabled, prizes };
   });
-  return { allowNegative: value.allowNegative, initialBalance: value.initialBalance, roulettes };
+  return { allowNegative: value.allowNegative, initialBalance: value.initialBalance, sound: { volume: sound.volume }, roulettes };
 }
 
 export function normalizeDonation(provider, body) {
@@ -76,10 +78,23 @@ export class Engine extends EventEmitter {
   constructor(file, { now = Date.now, pick = choosePrize } = {}) {
     super(); this.file = file; this.now = now; this.pick = pick; this.timer = null;
     this.data = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {
-      version: 1, config: defaultConfig(), balance: 30_000_000, donations: [], history: [], queue: [], active: null, seen: [],
+      version: 2, config: defaultConfig(), balance: 30_000_000, donations: [], history: [], queue: [], active: null, seen: [],
       youtubeCursor: null
     };
-    validateConfig(this.data.config);
+    // Upgrade only untouched legacy prize tables/prices. Custom rules and
+    // queued spin snapshots retain their original settings and outcomes.
+    if (this.data.version === 1) {
+      const legacyAmounts = [0, 100_000, 500_000, 1_000_000, 3_000_000, 5_000_000, 10_000_000];
+      const legacyWeights = [300, 250, 200, 150, 60, 30, 10];
+      for (const replacement of defaultConfig().roulettes) {
+        const r = this.data.config.roulettes.find(row => row.id === replacement.id && row.kind === replacement.kind);
+        if (r && r.triggerKrw === (r.kind === 'attack' ? 1000 : 2000) && r.prizes.length === 7 && r.prizes.every((p, i) => p.meso === legacyAmounts[i] && p.weight === legacyWeights[i])) {
+          r.triggerKrw = replacement.triggerKrw; r.prizes = replacement.prizes;
+        }
+      }
+      this.data.version = 2;
+    }
+    this.data.config = validateConfig(this.data.config);
     // Persisted in-flight spins retain their chosen result and settle at most once.
     this.save();
   }

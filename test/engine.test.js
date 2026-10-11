@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Engine, defaultConfig, validateConfig, normalizeDonation, choosePrize, InputError } from '../src/engine.js';
@@ -11,25 +11,25 @@ function fixture(t, ticket = 999) {
   return { engine, file: join(dir, 'state.json'), advance: ms => { clock += ms; engine.pump(); }, now: () => clock };
 }
 const donation = (id = 'a', amount = 1000, unit = 'KRW') => ({ eventId: id, nickname: '시청자 <script>', amount, unit });
-test('defaults: 30 million starting mesos, negative allowed, separate exact amounts', () => { const c = validateConfig(defaultConfig()); assert.equal(c.initialBalance, 30000000); assert.equal(c.allowNegative, true); assert.equal(c.roulettes[0].triggerKrw, 1000); assert.equal(c.roulettes[1].triggerKrw, 2000); });
+test('defaults: 30 million starting mesos, negative allowed, separate exact amounts', () => { const c = validateConfig(defaultConfig()); assert.equal(c.initialBalance, 30000000); assert.equal(c.allowNegative, true); assert.equal(c.roulettes[0].triggerKrw, 1000); assert.equal(c.roulettes[1].triggerKrw, 1100); });
 test('probability boundary and zero weight: all 1000 tickets follow integer tenths', () => { const prizes = [{ meso: 0, weight: 0 }, { meso: 1, weight: 1 }, { meso: 2, weight: 999 }]; assert.equal(choosePrize(prizes, 0).index, 1); for (let i = 1; i < 1000; i++) assert.equal(choosePrize(prizes, i).index, 2); });
 test('invalid totals, sub 0.1% weights and duplicated enabled amounts are rejected', () => {
-  const c = defaultConfig(); c.roulettes[0].prizes[0].weight = 299; assert.throws(() => validateConfig(c), InputError);
-  c.roulettes[0].prizes[0].weight = 300.5; assert.throws(() => validateConfig(c), InputError);
-  c.roulettes[0].prizes[0].weight = 300; c.roulettes[1].triggerKrw = 1000; assert.throws(() => validateConfig(c), InputError);
+  const c = defaultConfig(); c.roulettes[0].prizes[0].weight = 89; assert.throws(() => validateConfig(c), InputError);
+  c.roulettes[0].prizes[0].weight = 90.5; assert.throws(() => validateConfig(c), InputError);
+  c.roulettes[0].prizes[0].weight = 90; c.roulettes[1].triggerKrw = 1000; assert.throws(() => validateConfig(c), InputError);
   c.roulettes[1].enabled = false; assert.doesNotThrow(() => validateConfig(c));
 });
 test('meso range and integer amounts are enforced', () => { const c = defaultConfig(); c.roulettes[0].prizes[0].meso = 10000001; assert.throws(() => validateConfig(c), InputError); assert.throws(() => normalizeDonation('soop', donation('a', 1.5, 'STAR')), InputError); });
 test('STAR converts 1 to 100 KRW; only SOOP accepts STAR', () => { assert.equal(normalizeDonation('soop', donation('x', 10, 'STAR')).amountKrw, 1000); assert.throws(() => normalizeDonation('youtube', donation('x', 10, 'STAR')), InputError); });
-test('exact match only: 999 ignored, 1000 attack, 2000 defense, never multiple spins', t => {
+test('exact match only: 999 ignored, 1000 attack, 1100 defense, never multiple spins', t => {
   const { engine } = fixture(t); assert.equal(engine.data.balance, 30000000);
   assert.equal(engine.receive('chzzk', donation('x', 999)).matched, false); assert.equal(engine.data.active, null);
   assert.equal(engine.receive('chzzk', donation('y', 1000)).matched, true); assert.equal(engine.data.active.roulette.kind, 'attack');
-  engine.receive('soop', donation('z', 20, 'STAR')); assert.equal(engine.data.queue.length, 1); assert.equal(engine.data.queue[0].roulette.kind, 'defense');
+  engine.receive('soop', donation('z', 11, 'STAR')); assert.equal(engine.data.queue.length, 1); assert.equal(engine.data.queue[0].roulette.kind, 'defense');
 });
 test('spin settles only after duration; attack increments and defense decrements in FIFO order', t => {
   const { engine, advance } = fixture(t);
-  engine.receive('chzzk', donation('a')); engine.receive('soop', donation('b', 20, 'STAR'));
+  engine.receive('chzzk', donation('a')); engine.receive('soop', donation('b', 11, 'STAR'));
   advance(999); assert.equal(engine.data.balance, 30000000); assert.equal(engine.data.history.length, 0);
   advance(1); assert.equal(engine.data.balance, 40000000); assert.equal(engine.data.history.length, 1);
   advance(1500); assert.equal(engine.data.active.roulette.kind, 'defense'); advance(1000); assert.equal(engine.data.balance, 30000000);
@@ -50,9 +50,9 @@ test('unfinished spin resumes chosen result after a real restart', t => {
   assert.equal(restored.data.balance, 40000000); assert.equal(restored.data.history.length, 1); assert.equal(restored.data.active, null);
 });
 test('negative balance allowed; configurable floor reports actual delta', t => {
-  const { engine, advance } = fixture(t); engine.setBalance(0); engine.receive('soop', donation('a', 2000)); advance(1000); assert.equal(engine.data.balance, -10000000); advance(1500);
+  const { engine, advance } = fixture(t); engine.setBalance(0); engine.receive('soop', donation('a', 1100)); advance(1000); assert.equal(engine.data.balance, -10000000); advance(1500);
   const config = defaultConfig(); config.allowNegative = false; engine.updateConfig(config); assert.equal(engine.data.balance, 0);
-  engine.setBalance(5000000); engine.receive('soop', donation('b', 2000)); advance(1000); assert.equal(engine.data.balance, 0); assert.equal(engine.data.history[0].actualDelta, -5000000); assert.equal(engine.data.history[0].delta, -10000000);
+  engine.setBalance(5000000); engine.receive('soop', donation('b', 1100)); advance(1000); assert.equal(engine.data.balance, 0); assert.equal(engine.data.history[0].actualDelta, -5000000); assert.equal(engine.data.history[0].delta, -10000000);
 });
 test('queued events retain old settings while new donations use updated amounts', t => {
   const { engine, advance } = fixture(t); engine.receive('chzzk', donation('a')); engine.receive('chzzk', donation('b'));
@@ -63,3 +63,27 @@ test('queued events retain old settings while new donations use updated amounts'
 });
 test('balance reset blocked during active spin; changing initial amount does not reset balance', t => { const { engine } = fixture(t); const config = defaultConfig(); config.initialBalance = 50000000; engine.updateConfig(config); assert.equal(engine.data.balance, 30000000); engine.receive('chzzk', donation('a')); assert.throws(() => engine.setBalance(0), InputError); });
 test('test donations are clearly marked and count as real demo balance changes', t => { const { engine, advance } = fixture(t); engine.receive('youtube', donation('test'), { test: true }); advance(1000); assert.equal(engine.data.history[0].test, true); assert.equal(engine.data.balance, 40000000); });
+
+test('eleven default outcomes have the closest possible 0.1% distribution and audio validates', () => {
+ const c=defaultConfig();
+ for (const r of c.roulettes) {
+  assert.deepEqual(r.prizes.map(p=>p.meso),Array.from({length:11},(_,i)=>i*1000000));
+  assert.deepEqual(r.prizes.map(p=>p.weight),[90,...Array(10).fill(91)]);
+  assert.equal(r.prizes.reduce((n,p)=>n+p.weight,0),1000);
+ }
+ assert.equal(c.sound.volume,50);
+ for (const volume of [-1,101,5.5]) assert.throws(()=>validateConfig({...c,sound:{volume}}),InputError);
+ assert.equal(validateConfig({...c,sound:{volume:0}}).sound.volume,0);
+});
+test('legacy defaults upgrade without resetting balance or customized rules', t => {
+ const {engine,file}=fixture(t); engine.close();
+ const old=JSON.parse(readFileSync(file)); old.version=1; delete old.config.sound;
+ const amounts=[0,100000,500000,1000000,3000000,5000000,10000000], weights=[300,250,200,150,60,30,10];
+ const defense=old.config.roulettes[1]; defense.triggerKrw=2000; defense.prizes=amounts.map((meso,i)=>({id:'legacy-'+i,meso,weight:weights[i]}));
+ old.config.roulettes[0].triggerKrw=3300; old.balance=-123;
+ writeFileSync(file,JSON.stringify(old));
+ const restored=new Engine(file); t.after(()=>restored.close());
+ assert.equal(restored.data.balance,-123); assert.equal(restored.data.config.roulettes[0].triggerKrw,3300);
+ assert.equal(restored.data.config.roulettes[1].triggerKrw,1100); assert.equal(restored.data.config.roulettes[1].prizes.length,11);
+ assert.equal(restored.data.config.sound.volume,50);
+});

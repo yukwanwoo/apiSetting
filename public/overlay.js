@@ -3,11 +3,15 @@ const fmt = n => Number(n).toLocaleString('ko-KR');
 const mesoView = document.body.dataset.view === 'meso';
 const params = new URLSearchParams(location.search);
 const token = params.get('token');
-if (params.get('preview') === '1') document.body.classList.add('preview-mode');
+const preview = params.get('preview') === '1';
+if (preview) document.body.classList.add('preview-mode');
 const providers = { chzzk: '치지직', soop: 'SOOP', youtube: 'YouTube', toonation: '투네이션' };
 const colors = ['#7260b8', '#354763', '#497758', '#54649a', '#74608b', '#9c744c', '#a4bc57'];
-let state, offset = 0, frame, lastBalance;
-const samplePrizes = [{ meso: 0, weight: 300 }, { meso: 100000, weight: 250 }, { meso: 500000, weight: 200 }, { meso: 1000000, weight: 150 }, { meso: 3000000, weight: 60 }, { meso: 5000000, weight: 30 }, { meso: 10000000, weight: 10 }];
+let state, offset = 0, frame, lastBalance, hideTimer, lastSoundId;
+const samplePrizes = Array.from({ length: 11 }, (_, i) => ({ meso: i * 1000000, weight: i === 0 ? 90 : 91 }));
+const alertSound = new Audio('/alert.wav');
+alertSound.preload = 'auto';
+function hideRoulette() { cancelAnimationFrame(frame); document.querySelector('.roulette-overlay').hidden = true; }
 function short(n) { return n === 0 ? '0 메소' : n >= 10000 ? `${fmt(n / 10000)}만` : fmt(n); }
 function draw(prizes, angle = 0, defense = false) {
   const canvas = $('wheel'); if (!canvas) return;
@@ -44,9 +48,23 @@ function update(next) {
     lastBalance = state.balance; return;
   }
   cancelAnimationFrame(frame);
+  clearTimeout(hideTimer);
   const active = state.active;
+  const panel = document.querySelector('.roulette-overlay');
+  panel.hidden = !active && !preview;
   if (!active) {
     $('overlay-kind').textContent = 'MESO LIVE'; $('overlay-donor').textContent = '다음 행운을 기다리는 중'; $('overlay-donation').textContent = '후원이 도착하면 룰렛이 돌아갑니다'; $('result-label').textContent = 'READY FOR YOUR LUCK'; $('result-amount').textContent = '행운을 돌려보세요'; $('result-note').textContent = ''; $('overlay-result').className = 'overlay-result'; draw(samplePrizes); return;
+  }
+  const remaining = active.endsAt + active.roulette.resultHoldMs - (Date.now() + offset);
+  if (remaining <= 0) { hideRoulette(); return; }
+  hideTimer = setTimeout(hideRoulette, remaining);
+  if (active.id !== lastSoundId) {
+    lastSoundId = active.id;
+    if (!preview && !active.settled && Date.now() + offset - active.startedAt < 1500 && (state.sound?.volume ?? 50) > 0) {
+      alertSound.volume = (state.sound?.volume ?? 50) / 100;
+      alertSound.currentTime = 0;
+      alertSound.play().catch(() => {});
+    }
   }
   $('overlay-kind').textContent = `${active.roulette.kind === 'attack' ? 'ATTACK' : 'DEFENSE'} ROULETTE${active.donation.test ? ' · TEST' : ''}`;
   $('overlay-donor').textContent = `${active.donation.nickname}님의 ${active.roulette.name}`;
@@ -58,7 +76,7 @@ function update(next) {
   } else { $('result-label').textContent = 'GOOD LUCK'; $('result-amount').textContent = '행운을 뽑는 중…'; $('result-note').textContent = state.queueLength ? `다음 ${state.queueLength}건 대기 중` : ''; }
   animate();
 }
-if (!mesoView) draw(samplePrizes);
+if (!mesoView) { document.querySelector('.roulette-overlay').hidden = !preview; draw(samplePrizes); }
 if (!token) { $('overlay-connection').textContent = '관리자 대시보드에서 OBS 주소를 복사하세요.'; }
 else {
   const stream = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);

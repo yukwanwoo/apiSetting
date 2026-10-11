@@ -13,7 +13,7 @@ import { SoopConnector } from './soop.js';
 import { ToonationConnector } from './toonation.js';
 
 const ROOT = isSea() ? dirname(process.execPath) : resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.wav': 'audio/wav' };
 function sameSecret(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   const aa = Buffer.from(a), bb = Buffer.from(b);
@@ -49,7 +49,7 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
   const viewerState = () => {
     const state = engine.snapshot();
     // OBS clients only need the currently displayed spin and the balance.
-    return { balance: state.balance, active: state.active, queueLength: state.queue.length, serverTime: state.serverTime };
+    return { balance: state.balance, active: state.active, queueLength: state.queue.length, serverTime: state.serverTime, sound: state.config.sound };
   };
   const send = () => {
     for (const client of clients) {
@@ -127,7 +127,7 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
         return json(res, 404, { error: '경로를 찾지 못했습니다.' });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: '지원하지 않는 요청입니다.' });
-      const allowed = new Set(['/', '/index.html', '/overlay.html', '/meso.html', '/styles.css', '/dashboard.js', '/overlay.js']);
+      const allowed = new Set(['/', '/index.html', '/overlay.html', '/meso.html', '/styles.css', '/dashboard.js', '/overlay.js', '/alert.wav']);
       if (!allowed.has(url.pathname)) return json(res, 404, { error: '경로를 찾지 못했습니다.' });
       const path = resolve(ROOT, 'public', url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
       const file = isSea() ? Buffer.from(getAsset(`public/${url.pathname === '/' ? 'index.html' : url.pathname.slice(1)}`)) : readFileSync(path);

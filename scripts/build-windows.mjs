@@ -11,6 +11,8 @@ const root = resolve(import.meta.dirname, '..');
 process.chdir(root);
 const version = JSON.parse(readFileSync('package.json')).version;
 mkdirSync('dist', { recursive: true });
+const packageDir = resolve(`dist/MesoLiveRoulette-${version}-win-x64`);
+mkdirSync(resolve(packageDir, 'data'), { recursive: true });
 await build({
   entryPoints: ['src/desktop.js'], outfile: 'dist/desktop.cjs', bundle: true,
   platform: 'node', target: 'node24', format: 'cjs',
@@ -22,7 +24,7 @@ await build({
 const assets = Object.fromEntries(readdirSync('public').map(name => [`public/${name}`, resolve('public', name)]));
 writeFileSync('dist/sea-config.json', JSON.stringify({ main: resolve('dist/desktop.cjs'), output: resolve('dist/sea.blob'), disableExperimentalSEAWarning: true, useSnapshot: false, useCodeCache: false, assets }));
 execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.json'], { stdio: 'inherit' });
-const exe = resolve(`dist/MesoLiveRoulette-${version}-win-x64.exe`);
+const exe = resolve(packageDir, `MesoLiveRoulette-${version}-win-x64.exe`);
 copyFileSync(process.execPath, exe);
 // Modifying a signed Node executable invalidates its Authenticode signature.
 // Clear the PE32+ security directory and remove the trailing certificate table
@@ -37,9 +39,10 @@ writeFileSync(exe, certificateOffset > 0 && certificateOffset + certificateSize 
 await inject(exe, 'NODE_SEA_BLOB', readFileSync('dist/sea.blob'), { sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2' });
 const finalPe = readFileSync(exe), finalOptional = finalPe.readUInt32LE(0x3c) + 24;
 if (finalPe.readBigUInt64LE(finalOptional + 112 + 4 * 8) !== 0n) throw new Error('Executable still contains an invalid signing certificate');
-copyFileSync('docs/WINDOWS.txt', 'dist/사용설명서.txt');
+copyFileSync('docs/WINDOWS.txt', resolve(packageDir, '사용설명서.txt'));
+writeFileSync(resolve(packageDir, 'data/안내.txt'), '설정·메소 잔액·인증 키는 첫 실행 시 이 폴더에 저장됩니다. 폴더 전체를 보관하고 공유하지 마세요.\n');
 // Upstream v24.19.0 license is vendored; packaging needs no extra downloads.
-writeFileSync('dist/THIRD-PARTY-NOTICES.txt', ['Node.js 24.19.0', readFileSync('docs/NODE-LICENSE.txt', 'utf8'), '\nsoop-chat 0.6.0', readFileSync('node_modules/soop-chat/LICENSE', 'utf8'), '\nws 8.21.3', readFileSync('node_modules/ws/LICENSE', 'utf8')].join('\n'));
+writeFileSync(resolve(packageDir, 'THIRD-PARTY-NOTICES.txt'), ['Node.js 24.19.0', readFileSync('docs/NODE-LICENSE.txt', 'utf8'), '\nsoop-chat 0.6.0', readFileSync('node_modules/soop-chat/LICENSE', 'utf8'), '\nws 8.21.3', readFileSync('node_modules/ws/LICENSE', 'utf8')].join('\n'));
 const sha = createHash('sha256').update(readFileSync(exe)).digest('hex');
-writeFileSync('dist/SHA256SUMS.txt', `${sha}  MesoLiveRoulette-${version}-win-x64.exe\n`);
+writeFileSync(resolve(packageDir, 'SHA256SUMS.txt'), `${sha}  MesoLiveRoulette-${version}-win-x64.exe\n`);
 console.log(`Built ${exe}`);

@@ -1,9 +1,10 @@
-import { resolve, join } from 'node:path';
-import { homedir } from 'node:os';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { isSea } from 'node:sea';
 import { spawn } from 'node:child_process';
 import { createApp } from './server.js';
+import { preparePortableData } from './portable.js';
 
-const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(process.env.LOCALAPPDATA || join(homedir(), '.local', 'share'), 'MesoLiveRoulette', 'data');
 let app;
 function fail(error) {
   console.error(error.code === 'EADDRINUSE' ? '이미 실행 중이거나 3000번 포트를 다른 프로그램이 사용 중입니다. 기존 실행 창을 확인하세요.' : `실행 실패: ${error.code || error.message}`);
@@ -15,6 +16,8 @@ function fail(error) {
   }
 }
 try {
+  const { dataDir, migrated } = preparePortableData(isSea() ? process.execPath : resolve(dirname(fileURLToPath(import.meta.url)), '../MesoLiveRoulette.exe'));
+  if (migrated) console.log('이전 AppData 데이터와 키를 EXE 옆 data 폴더에 복사했습니다. 원본은 보존됩니다.');
   app = createApp({ dataDir });
   app.server.once('error', fail);
   app.server.listen(3000, '127.0.0.1', () => {
@@ -31,4 +34,4 @@ try {
   });
   const stop = () => { app.close(); setTimeout(() => process.exit(0), 1000).unref(); };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
-} catch (error) { fail(error); }
+} catch (error) { if (['EACCES', 'EPERM'].includes(error.code)) console.error('EXE 폴더에 쓸 수 없습니다. ZIP을 바탕화면 등 쓰기 가능한 폴더에 풀어 실행하세요.'); fail(error); }

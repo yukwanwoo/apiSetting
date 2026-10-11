@@ -35,6 +35,7 @@ function fillSelect() { $('roulette-select').replaceChildren(...draft.roulettes.
 function renderEditor() {
   const r = roulette(); fillSelect(); $('roulette-name').value = r.name; $('roulette-kind').value = r.kind; $('roulette-enabled').checked = r.enabled;
   $('roulette-unit').value = 'KRW'; $('roulette-amount').value = r.triggerKrw; $('roulette-duration').value = r.durationMs / 1000; $('roulette-hold').value = r.resultHoldMs / 1000;
+  $('sound-volume').value = draft.sound.volume; $('sound-volume-label').textContent = `${draft.sound.volume}%`;
   $('allow-negative').checked = draft.allowNegative; $('initial-balance').value = draft.initialBalance; renderPrizes(); ruleConversion(); $('save-config').textContent = dirty ? '변경사항 저장' : '설정 저장';
 }
 function renderPrizes() {
@@ -107,6 +108,9 @@ $('roulette-amount').addEventListener('input', () => { ruleConversion(); markDir
 $('roulette-unit').addEventListener('change', () => { const amount = roulette().triggerKrw; $('roulette-amount').value = amount / ($('roulette-unit').value === 'STAR' ? 100 : 1); ruleConversion(); });
 $('roulette-duration').addEventListener('input', () => { roulette().durationMs = Math.round(Number($('roulette-duration').value) * 1000); markDirty(); });
 $('roulette-hold').addEventListener('input', () => { roulette().resultHoldMs = Math.round(Number($('roulette-hold').value) * 1000); markDirty(); });
+const soundPreview = new Audio('/alert.wav');
+$('sound-volume').addEventListener('input', () => { draft.sound.volume = Number($('sound-volume').value); $('sound-volume-label').textContent = `${draft.sound.volume}%`; markDirty(); });
+$('test-sound').addEventListener('click', () => { soundPreview.volume = draft.sound.volume / 100; soundPreview.currentTime = 0; soundPreview.play().catch(() => notice('알림음을 재생할 수 없습니다. 브라우저 소리 설정을 확인하세요.', true)); });
 $('initial-balance').addEventListener('input', () => { draft.initialBalance = Number($('initial-balance').value); markDirty(); });
 $('reset-balance').addEventListener('click', async () => { try { renderState(await api('/api/balance', { balance: state.config.initialBalance })); notice('저장된 시작 메소로 초기화했습니다.'); } catch (error) { notice(error.message, true); } });
 $('allow-negative').addEventListener('change', () => { draft.allowNegative = $('allow-negative').checked; markDirty(); });

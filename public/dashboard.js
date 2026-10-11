@@ -78,8 +78,10 @@ async function connections() {
   const info = await api('/api/connection');
   if (!sourcesLoaded) { for (const [provider, source] of Object.entries(info.sources)) $(`source-${provider}`).value = source; sourcesLoaded = true; }
   $('youtube-redirect').value = info.youtube.redirectUri;
-  $('youtube-app-status').textContent = `OAuth 앱: ${info.youtube.appConfigured ? '설정됨' : '미설정'} · 계정 인증: ${info.youtube.authConfigured ? '설정됨' : '미설정'}`;
+  $('youtube-app-status').textContent = `연결 모드: ${info.youtube.mode === 'oauth' ? '공식 Google 계정' : '비공식 공개 채팅'} · OAuth 앱: ${info.youtube.appConfigured ? '설정됨' : '미설정'} · 계정 인증: ${info.youtube.authConfigured ? '설정됨' : '미설정'}`;
   $('youtube-connect').disabled = !info.youtube.appConfigured;
+  $('youtube-url-connect').disabled = !info.sources.youtube;
+  $('youtube-url-disconnect').disabled = info.youtube.mode !== 'public' || !info.youtube.publicEnabled;
   $('chzzk-connect').disabled = !info.chzzk.appConfigured; $('chzzk-url-connect').disabled = !info.sources.chzzk;
   $('chzzk-redirect').value = info.chzzk.redirectUri;
   $('chzzk-app-status').textContent = `개발자 앱: ${info.chzzk.appConfigured ? '설정됨' : '운영자 설정 필요'} · 계정: ${info.chzzk.authConfigured ? '인증됨' : '연결 필요'}`;
@@ -96,13 +98,13 @@ async function connections() {
     badge.textContent = ({ connected: '후원 수신 확인', listening: '수신 대기', connecting: '연결 중', reconnecting: '재연결 중', auth_required: '권한 필요', not_configured: '연결 필요', error: '연결 오류', offline: '방송 종료' })[provider.state] || '대기';
     const detail = document.createElement('p'); detail.textContent = provider.detail + (provider.skippedCurrency ? ` · 외화 후원 ${provider.skippedCurrency}건 제외` : ''); card.append(icon, title, badge, detail); if (provider.diagnostics) {
       const d = provider.diagnostics, stats = document.createElement('p'); stats.className = 'helper';
-      stats.textContent = `수신 진단 · 패킷 ${d.packets} · 채팅 ${d.chatMessages} · 별풍선 패킷 ${d.donationPackets} · 처리 ${provider.received} · 해석 오류 ${d.protocolErrors} · 호환 처리 ${d.fallbackDonations}`;
+      stats.textContent = `수신 진단 · 패킷 ${d.packets ?? d.polls} · 채팅 ${d.chatMessages} · 후원 패킷 ${d.donationPackets} · 처리 ${provider.received} · 해석 오류 ${d.protocolErrors ?? d.malformedDonations} · ${provider.provider === 'youtube' ? `과거 제외 ${d.ignoredHistory} · 중복 ${d.duplicates}` : `호환 처리 ${d.fallbackDonations}`}`;
       if (d.channel) stats.textContent += ` · 방송 ${d.channel.broadcastNo} / 채팅방 ${d.channel.chatNo} · 서버 ${d.channel.chatDomain}:${d.channel.chatPort + 1} · 입장 티켓 ${d.joinTicketSent ? '전달됨' : '없음'} · 재연결 ${d.reconnects}회`;
       if (d.lastPacketAt) stats.textContent += ` · 최근 수신 ${new Date(d.lastPacketAt).toLocaleTimeString('ko-KR')}`;
       if (d.lastProtocolError) stats.textContent += ` · 최근 오류 코드 ${d.lastProtocolError.opcode || '프레임'}, 필드 ${d.lastProtocolError.fieldCount ?? '알 수 없음'}`;
       card.append(stats);
-      const copy = document.createElement('button'); copy.className = 'text-button'; copy.textContent = 'SOOP 진단 복사';
-      copy.addEventListener('click', async () => { try { const fresh = (await api('/api/connection')).providers.find(p => p.provider === 'soop'); await navigator.clipboard.writeText(JSON.stringify({ provider: 'soop', copiedAt: Date.now(), state: fresh.state, received: fresh.received, diagnostics: fresh.diagnostics }, null, 2)); notice('SOOP 진단을 복사했습니다. 키·채팅 내용·후원자 닉네임은 포함하지 않습니다.'); } catch { notice('진단을 복사할 수 없습니다. 화면의 진단 숫자를 알려주세요.', true); } }); card.append(copy);
+      const copy = document.createElement('button'); copy.className = 'text-button'; copy.textContent = `${names[provider.provider]} 진단 복사`;
+      copy.addEventListener('click', async () => { try { const fresh = (await api('/api/connection')).providers.find(p => p.provider === provider.provider); await navigator.clipboard.writeText(JSON.stringify({ provider: provider.provider, copiedAt: Date.now(), state: fresh.state, received: fresh.received, diagnostics: fresh.diagnostics }, null, 2)); notice(`${names[provider.provider]} 진단을 복사했습니다. 키·채팅 내용·후원자 닉네임은 포함하지 않습니다.`); } catch { notice('진단을 복사할 수 없습니다. 화면의 진단 숫자를 알려주세요.', true); } }); card.append(copy);
     }
     if (provider.configured) { const retry = document.createElement('button'); retry.className = 'text-button'; retry.textContent = '다시 연결'; retry.addEventListener('click', async () => { try { await api('/api/provider/reconnect', { provider: provider.provider }); await connections(); } catch (error) { notice(error.message, true); } }); card.append(retry); } return card;
   }));
@@ -249,3 +251,6 @@ $('toonation-widget-form').addEventListener('submit', async event => { event.pre
 $('toonation-disconnect').addEventListener('click', async () => { try { await api('/api/toonation/widget', { widgetUrl: '' }); await connections(); notice('투네이션 위젯 연결 정보를 삭제했습니다.'); } catch (error) { notice(error.message, true); } });
 
 $('chzzk-url-connect').addEventListener('click', async () => { try { await api('/api/chzzk/connection', { enabled: true }); await connections(); notice('치지직 공개 방송 연결을 시작했습니다. 방송 상태를 확인하세요.'); } catch (error) { notice(error.message, true); } });
+
+$('youtube-url-connect').addEventListener('click', async () => { try { await api('/api/youtube/connection', { enabled: true }); await connections(); notice('YouTube 공개 채팅 연결을 시작했습니다. 수신 대기와 실제 후원 수신 상태를 확인하세요.'); } catch (error) { notice(error.message, true); } });
+$('youtube-url-disconnect').addEventListener('click', async () => { try { await api('/api/youtube/connection', { enabled: false }); await connections(); notice('YouTube 공개 채팅 연결을 해제했습니다.'); } catch (error) { notice(error.message, true); } });

@@ -24,19 +24,19 @@
     <section id="tab-connections" class="tab-section" hidden>
       <article class="card">
         <div class="card-heading"><div><span class="eyebrow">DONATION SOURCES</span><h2>내 방송 연결</h2></div><button id="refresh-connections" class="button secondary">상태 새로고침</button></div>
-        <p class="muted">치지직·SOOP는 공개 방송 URL, 투네이션은 알림 위젯 URL로 연결합니다. YouTube와 치지직 공식 연결은 계정 동의 방식도 지원합니다. 수신 대기와 실제 후원 수신 상태를 구분합니다.</p>
+        <p class="muted">치지직·SOOP는 공개 방송 URL, 투네이션은 알림 위젯 URL로 연결합니다. YouTube도 팝업 채팅 URL로 연결할 수 있습니다. YouTube와 치지직의 공식 연결은 계정 동의 방식도 지원합니다. 수신 대기와 실제 후원 수신 상태를 구분합니다.</p>
         <div id="provider-cards" class="provider-grid"></div>
         <form id="source-form">
           <div class="field-row"><label>치지직 방송 URL<input id="source-chzzk" type="url" placeholder="https://chzzk.naver.com/live/채널ID"></label><label>SOOP 방송 URL<input id="source-soop" type="url" placeholder="https://play.sooplive.com/방송인ID"></label></div>
-          <div class="field-row"><label>YouTube 방송 URL<input id="source-youtube" type="url" placeholder="https://www.youtube.com/watch?v=…"></label><label>투네이션 후원 페이지 (기록용 · 선택)<input id="source-toonation" type="url" placeholder="https://toon.at/donate/…"></label></div>
+          <div class="field-row"><label>YouTube 팝업 채팅 / 방송 URL<input id="source-youtube" type="url" placeholder="https://www.youtube.com/live_chat?is_popout=1&amp;v=…"></label><label>투네이션 후원 페이지 (기록용 · 선택)<input id="source-toonation" type="url" placeholder="https://toon.at/donate/…"></label></div>
           <button class="button secondary" type="submit">방송 URL 저장</button>
-          <p class="helper">치지직·SOOP는 URL 저장 후 아래 연결 버튼을 누르세요. 치지직 공식 계정 모드는 인증 계정의 후원을 받습니다. 투네이션은 아래의 알림 위젯 URL을 입력해야 후원을 수신합니다.</p>
+          <p class="helper">치지직·SOOP·YouTube는 URL 저장 후 아래 연결 버튼을 누르세요. 치지직 공식 계정 모드는 인증 계정의 후원을 받습니다. 투네이션은 아래의 알림 위젯 URL을 입력해야 후원을 수신합니다.</p>
         </form>
         <div class="connection-grid">
           <section class="connection-panel"><h2>치지직</h2><p class="muted">개발자 키 없이 공개 방송 URL로 연결합니다. 공식 계정 연결은 운영자 앱 설정 후 선택할 수 있습니다.</p><p id="chzzk-app-status" class="helper"></p><button id="chzzk-url-connect" class="button primary">저장한 치지직 방송 연결</button><p class="helper">URL 연결은 비공식 공개 채팅 방식입니다. 제한 방송은 지원하지 않습니다.</p><button id="chzzk-connect" class="button secondary">치지직 계정 연결 ↗</button><button id="chzzk-disconnect" class="text-button danger">계정 연결 해제</button></section>
           <section class="connection-panel"><h2>SOOP</h2><p class="muted">공개 방송 URL로 별풍선·영상 별풍선 이벤트를 읽습니다. 계정 비밀번호를 요구하지 않습니다.</p><button id="soop-connect" class="button primary">저장한 SOOP 방송 연결</button><button id="soop-disconnect" class="text-button danger">연결 해제</button><p class="helper">공개 채팅 기반 비공식 연동입니다. 성인·구독·비밀번호 제한 방송은 현재 지원하지 않습니다.</p></section>
           <section class="connection-panel"><h2>투네이션</h2><p class="muted">투네이션 스트리머 설정 → 알림 위젯에서 OBS용 알림창 URL을 복사해 붙여 넣으세요.</p><form id="toonation-widget-form"><label>알림 위젯 URL<input id="toonation-widget-url" type="password" autocomplete="off" placeholder="https://toon.at/widget/alertbox/…" required></label><button class="button primary" type="submit">투네이션 위젯 연결</button></form><p id="toonation-widget-status" class="helper"></p><button id="toonation-disconnect" class="text-button danger">위젯 연결 삭제</button><p class="helper">알림 위젯 기반 비공식 연동입니다. URL은 연결 권한을 포함하므로 다른 사람에게 공유하지 마세요. 투네이션 자체 테스트 알림은 잔액에 반영하지 않습니다.</p></section>
-          <section class="connection-panel"><h2>YouTube</h2><p class="muted">방송 URL 저장 후 Google 계정을 연결하세요. KRW Super Chat·Super Sticker를 수신합니다.</p><p id="youtube-app-status" class="helper"></p><button id="youtube-connect" class="button primary">Google로 YouTube 연결 ↗</button><button id="youtube-disconnect" class="text-button danger">계정 연결 해제</button></section>
+          <section class="connection-panel"><h2>YouTube</h2><p class="muted">팝업 채팅 URL을 저장하고 공개 채팅에 연결하세요. API 키·Google 계정 없이 KRW Super Chat·Super Sticker를 수신하는 비공식 베타 방식입니다.</p><button id="youtube-url-connect" class="button primary">저장한 YouTube 채팅 연결</button><button id="youtube-url-disconnect" class="text-button danger">공개 채팅 연결 해제</button><p class="helper">공개 라이브 채팅만 지원합니다. 지난 후원·다시보기·회원 가입·멤버십 선물·외화 후원은 잔액에 반영하지 않습니다. 로그인·제한 방송은 연결할 수 없습니다.</p><p id="youtube-app-status" class="helper"></p><button id="youtube-connect" class="button secondary">Google로 YouTube 연결 ↗</button><button id="youtube-disconnect" class="text-button danger">계정 연결 해제</button></section>
         </div>
         <p class="helper">채널별 과거 후원을 모두 가져오는 기능이 아닙니다. 연결된 동안 전달되는 이벤트를 처리합니다. 이벤트에 거래 ID가 없는 플랫폼은 연결이 끊긴 구간의 누락·재전송을 완전히 판별할 수 없습니다.</p>
       </article>

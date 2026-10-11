@@ -48,6 +48,8 @@ try {
     const response = await fetch(`http://127.0.0.1:3000${path}`); assert.equal(response.status, 200, path); assert.ok((await response.text()).length > 100);
   }
   assert.equal((await fetch('http://127.0.0.1:3000/api/state')).status, 401);
+  await request('/api/sources', { youtube: 'https://www.youtube.com/live_chat?is_popout=1&v=9CAhQOG6fxM' });
+  const connection = await request('/api/connection'); assert.equal(connection.youtube.mode, 'public'); assert.equal(connection.youtube.publicEnabled, false); assert.ok(connection.sources.youtube.includes('/live_chat?'));
   const state = await request('/api/state'); assert.equal(state.balance, 30_000_000);
   assert.equal(state.config.roulettes[1].triggerKrw, 1100);
   assert.equal(state.config.roulettes[0].prizes.length, 11);

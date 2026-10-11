@@ -31,7 +31,8 @@ export function youtubeVideoId(raw) {
   if (!raw) return '';
   try {
     const url = new URL(raw);
-    const id = url.hostname === 'youtu.be' ? url.pathname.slice(1) : url.searchParams.get('v') || url.pathname.match(/^\/(?:live|shorts)\/([^/]+)/)?.[1];
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || !['www.youtube.com', 'youtube.com', 'm.youtube.com', 'youtu.be'].includes(url.hostname)) return '';
+    const id = url.hostname === 'youtu.be' ? url.pathname.slice(1) : ['/watch', '/live_chat'].includes(url.pathname) ? url.searchParams.get('v') : url.pathname.match(/^\/(?:live|shorts)\/([^/]+)\/?$/)?.[1];
     return /^[A-Za-z0-9_-]{11}$/.test(id || '') ? id : '';
   } catch { return ''; }
 }
@@ -45,6 +46,9 @@ export class Connections {
     if (url.username || url.password || !['http:', 'https:'].includes(url.protocol) || (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) throw new Error('PUBLIC_BASE_URL must use HTTPS except on localhost.');
     this.redirectUri = `${url.origin}/oauth/youtube/callback`;
     this.chzzkRedirectUri = `${url.origin}/oauth/chzzk/callback`;
+    this.data.youtube ||= {};
+    this.data.youtube.mode ||= (this.data.youtube.refreshToken || env.YOUTUBE_ACCESS_TOKEN || env.YOUTUBE_REFRESH_TOKEN) ? 'oauth' : 'public';
+    this.data.youtube.enabled ??= false;
     this.data.chzzk ||= {}; this.data.chzzk.mode ||= (this.data.chzzk.accessToken || this.data.chzzk.refreshToken || env.CHZZK_ACCESS_TOKEN || env.CHZZK_REFRESH_TOKEN) ? 'oauth' : 'public'; this.data.chzzk.enabled ||= false; this.data.soop ||= { enabled: false }; this.data.toonation ||= {};
   }
   save() { const tmp = `${this.file}.tmp`; writeFileSync(tmp, JSON.stringify(this.data, null, 2), { mode: 0o600 }); renameSync(tmp, this.file); }
@@ -57,7 +61,14 @@ export class Connections {
       YOUTUBE_VIDEO_ID: youtubeVideoId(this.data.sources.youtube) || this.env.YOUTUBE_VIDEO_ID || ''
     };
   }
-  metadata() { const runtime = this.runtime(); return { redirectUri: this.redirectUri, appConfigured: Boolean(runtime.YOUTUBE_CLIENT_ID && runtime.YOUTUBE_CLIENT_SECRET), authConfigured: Boolean(runtime.YOUTUBE_ACCESS_TOKEN || runtime.YOUTUBE_REFRESH_TOKEN) }; }
+  metadata() { const runtime = this.runtime(); return { redirectUri: this.redirectUri, mode: this.data.youtube.mode, publicEnabled: this.data.youtube.enabled, appConfigured: Boolean(runtime.YOUTUBE_CLIENT_ID && runtime.YOUTUBE_CLIENT_SECRET), authConfigured: Boolean(runtime.YOUTUBE_ACCESS_TOKEN || runtime.YOUTUBE_REFRESH_TOKEN) }; }
+  setYouTubePublicEnabled(enabled) {
+    if (typeof enabled !== 'boolean') throw new InputError('YouTube 연결 설정을 확인하세요.');
+    if (enabled && !youtubeVideoId(this.data.sources.youtube)) throw new InputError('먼저 YouTube 팝업 채팅 URL 또는 방송 URL을 저장하세요.');
+    this.youtubeEpoch++;
+    for (const [key, pending] of this.pending) if (pending.provider === 'youtube') this.pending.delete(key);
+    this.data.youtube.mode = 'public'; this.data.youtube.enabled = enabled; this.save();
+  }
   setSources(sources) { this.data.sources = validateSources(sources); this.save(); }
   setApp({ clientId, clientSecret }) {
     if (this.env.YOUTUBE_CLIENT_ID || this.env.YOUTUBE_CLIENT_SECRET) throw new InputError('OAuth 앱이 환경 변수로 설정되어 있습니다. 서버 환경 설정에서 변경하세요.');
@@ -93,11 +104,11 @@ export class Connections {
     const result = await response.json();
     if (epoch !== this.youtubeEpoch) throw new InputError('인증 도중 연결 설정이 변경되었습니다. 다시 연결하세요.');
     if (!result.refresh_token) throw new InputError('오프라인 인증 토큰이 없습니다. Google 계정에서 기존 접근 권한 해제 후 다시 연결하세요.');
-    this.data.youtube.refreshToken = result.refresh_token; this.save();
+    this.data.youtube.refreshToken = result.refresh_token; this.data.youtube.mode = 'oauth'; this.data.youtube.enabled = true; this.save();
   }
   disconnect() {
     if (this.env.YOUTUBE_REFRESH_TOKEN || this.env.YOUTUBE_ACCESS_TOKEN) throw new InputError('환경 변수로 주입된 YouTube 인증은 서버 환경 설정에서 제거하세요.');
-    delete this.data.youtube.refreshToken; this.youtubeEpoch++; for (const [key, pending] of this.pending) if (pending.provider === 'youtube') this.pending.delete(key); this.save();
+    delete this.data.youtube.refreshToken; this.data.youtube.enabled = false; this.data.youtube.mode = 'public'; this.youtubeEpoch++; for (const [key, pending] of this.pending) if (pending.provider === 'youtube') this.pending.delete(key); this.save();
   }
   chzzkCredentials() {
     const c = this.data.chzzk;

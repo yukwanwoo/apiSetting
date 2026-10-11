@@ -4,6 +4,8 @@ Node.js 기반 후원 메소 룰렛과 OBS 브라우저 오버레이입니다. �
 
 ## Windows 11 64비트 배포본
 
+[0.0.6-beta.1 베타](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.0.6-beta.1): YouTube 팝업 채팅 URL만 입력하는 비공식 연결 모드를 추가했습니다. API 키·Google 계정 없이 공개 채팅의 KRW Super Chat·Super Sticker를 처리합니다. 실제 YouTube 후원 수신은 아직 확인되지 않았습니다. 기존 `data/` 전체를 새 EXE 옆에 옮겨 사용하세요.
+
 [0.0.5 Release](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.0.5)에서 ZIP을 내려받아 압축을 풀고 `MesoLiveRoulette-0.0.5-win-x64.exe`를 실행하세요. Node.js 설치나 관리자 권한 없이 브라우저 관리 화면이 자동으로 열립니다. 방송 중에는 실행 창을 열어 두세요. 라이브 스튜디오에서 코멘트·회전판 크기를 편집하고 저장 전에도 즉시 미리볼 수 있습니다. 메소 잔액 관리도 수동 증감 옆에서 사용합니다. 알림음 선택·업로드·구간 편집과 저장 후 종료를 유지합니다.
 
 ZIP에는 EXE와 `data/`를 포함한 하나의 폴더가 들어 있습니다. 설정·잔액·인증 정보는 **EXE 옆 `data/`**에 저장됩니다. 새 버전으로 업데이트할 때 기존 `data/`를 새 EXE 옆으로 옮기거나 EXE만 교체하세요. 폴더를 통째로 이동해도 설정은 유지됩니다. beta.3부터 AppData는 읽거나 자동 복사하지 않으며 EXE 실행에서는 DATA_DIR 환경 변수도 무시합니다. 이미 EXE 옆에 저장된 데이터는 유지됩니다. 배포본은 코드 서명되지 않아 SmartScreen 경고가 나올 수 있습니다. 상세 사용법은 [Windows 안내](docs/WINDOWS.txt)를 참고하세요.
@@ -40,12 +42,13 @@ npm start
 | 치지직 OAuth 인증 + 공식 후원 이벤트 구독 | 구현: 선택적 공식 모드, CHAT / VIDEO 후원 |
 | SOOP 공개 방송 URL + 실시간 채팅 후원 이벤트 | 구현: 별풍선 / 서브 채널 별풍선 / 영상 별풍선. 비공식 SDK 사용 |
 | 투네이션 알림 위젯 URL + WebSocket 후원 이벤트 | 구현: 위젯 code 101의 원화 후원. 비공식 위젯 프로토콜 사용 |
-| YouTube OAuth + Super Chat·Super Sticker | 구현: KRW 후원 |
+| YouTube 공개 팝업 채팅 URL | 비공식 베타: KRW Super Chat·Super Sticker. API 키·계정 로그인 불필요, 실제 유료 후원 미확인 |
+| YouTube OAuth + Super Chat·SuperSticker | 구현: 선택적 공식 모드, KRW 후원 |
 | 실제 방송 계정·유료 후원 수신 검증 | 사용자 확인: 치지직 및 SOOP. YouTube·투네이션은 유료 후원 수신 미확인 |
 
 누구나 자신의 방송을 설정할 수 있는 **설치형 앱**입니다. 채널이나 후원 계정이 코드에 고정되어 있지 않습니다. 설치마다 하나의 방송자 설정·메소 잔액을 갖습니다. 하나의 공개 웹사이트에 여러 방송자가 로그인하여 독립된 잔액을 갖는 멀티테넌트 SaaS는 아직 구현하지 않았습니다.
 
-치지직 공개 URL 모드·SOOP·투네이션은 개발자 앱 없이 URL로 연결합니다. 치지직 공식 모드·YouTube는 서비스 운영자가 개발자 앱을 등록하고 방송자는 계정 연결 버튼으로 동의합니다. 개인 PC에 설치하는 경우 설치자가 운영자이므로 처음에는 개발자 앱 설정이 필요합니다. 운영자 설정은 연결 화면의 접힌 별도 패널에 있습니다.
+치지직 공개 URL 모드·SOOP·투네이션·YouTube 공개 채팅은 개발자 앱 없이 URL로 연결합니다. 치지직·YouTube 공식 모드는 서비스 운영자가 개발자 앱을 등록하고 방송자는 계정 연결 버튼으로 동의합니다. 개인 PC에 설치하는 경우 설치자가 운영자이므로 처음에는 개발자 앱 설정이 필요합니다. 운영자 설정은 연결 화면의 접힌 별도 패널에 있습니다.
 
 ‘연결 필요’ → ‘연결 중’ → ‘수신 대기’ → ‘후원 수신 확인’을 구분합니다. 소켓이 열렸거나 URL을 저장한 것만으로 유료 후원 수신이 검증된 것으로 표시하지 않습니다. 모의 후원이나 로컬 소켓 테스트는 실제 플랫폼·유료 결제 검증을 대신하지 않습니다.
 
@@ -83,7 +86,18 @@ npm start
 
 관리 화면 상단 또는 사이드바의 **저장하고 종료**를 누르고 ‘현재 값들을 저장하고 종료하겠습니까?’ 확인창에서 확인합니다. 편집 중인 룰렛 설정·방송 URL과 현재 잔액·기록을 저장한 뒤 서버와 Windows EXE를 종료합니다. 검증이나 저장에 실패하면 종료하지 않습니다. 인증 앱 정보는 각 저장 버튼으로 먼저 저장하세요. 종료하면 후원 수신과 OBS 실시간 표시가 멈춥니다. 진행·대기 중인 룰렛은 저장해 다음 실행에서 재개합니다.
 
-## YouTube 계정 연결
+## YouTube 팝업 채팅 URL 연결 (비공식 베타)
+
+1. YouTube 라이브 채팅의 메뉴에서 팝업 창을 열고 `https://www.youtube.com/live_chat?is_popout=1&v=동영상ID` 주소를 복사합니다. 일반 watch·live·youtu.be 방송 URL도 사용할 수 있습니다.
+2. 연결 & OBS → **YouTube 팝업 채팅 / 방송 URL**에 붙여 넣고 **방송 URL 저장**을 누릅니다.
+3. **저장한 YouTube 채팅 연결**을 누릅니다. API 키·Google 계정 연결은 필요하지 않습니다. 다음 실행에서도 연결 설정을 유지합니다.
+4. ‘수신 대기’는 채팅 접속 상태이며 실제 유료 후원이 처리돼야 ‘후원 수신 확인’으로 바뀝니다. 패킷·후원·과거 제외·해석 오류·중복 집계는 **YouTube 진단 복사**로 확인합니다.
+
+KRW Super Chat·Super Sticker의 후원자·금액만 처리합니다. 처음 표시된 후원은 제외하고 이후 응답도 연결 시작 시각보다 오래된 후원은 제외합니다. 일반 채팅에 적힌 후원 문구, 티커 중복, 회원 가입·멤버십 선물, 다시보기 및 외화 후원은 메소에 반영하지 않습니다. 접속 토큰·공개 페이지 API 키·방문자 값은 메모리에만 보관하며 진단이나 설정 파일에는 저장하지 않습니다.
+
+공개 라이브 채팅만 지원합니다. YouTube의 로그인·지역·성인·회원 제한, 요청 차단, 채팅 비활성 또는 내부 형식 변경으로 연결이 실패할 수 있습니다. 과거 후원을 복구하는 기능이 아니며 연결이 끊긴 동안 수신을 보장하지 않습니다. 클라우드 환경의 YouTube 네트워크 차단으로 실제 방송 접속·유료 후원 수신은 확인하지 못했습니다. 베타는 공개 응답 형식의 모의 데이터를 사용한 처리·중복 방지·실제 메소 정산 및 Windows EXE 검증을 포함합니다.
+
+## YouTube 계정 연결 (선택적 공식 모드)
 
 서비스 제공자가 먼저 Google Cloud에서 YouTube Data API v3를 활성화하고 OAuth 웹 애플리케이션을 등록해야 합니다. 이후 방송자는 연결 화면의 **Google로 YouTube 연결** 버튼으로 인증합니다.
 
@@ -147,7 +161,7 @@ Access Token과 일회용으로 회전하는 Refresh Token은 서버의 보호 �
 | 치지직 | `chzzk.naver.com`, `api.chzzk.naver.com`, `comm-api.game.naver.com`, `*.chat.naver.com` (URL 모드), `openapi.chzzk.naver.com`, `*.nchat.naver.com` (공식 모드) |
 | SOOP | `live.sooplive.com`, SOOP API가 반환하는 채팅 호스트 (`*.sooplive.com` 등) |
 | 투네이션 | `toon.at`, `ws.toon.at` |
-| YouTube | `accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com` |
+| YouTube | 공개 채팅: `www.youtube.com` / 공식 모드: `accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com` |
 
 네트워크 제한 환경에서는 HTTPS뿐 아니라 WebSocket 연결도 허용해야 합니다. SOOP 채팅은 API가 반환하는 전용 포트(`chatPort + 1`)를 사용하므로 호스트만 허용하고 포트를 차단하면 연결되지 않습니다. 앱은 기본 시스템 TLS 검증을 유지하며 TLS·서명 검증을 끄지 않습니다.
 

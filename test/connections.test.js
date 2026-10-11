@@ -48,3 +48,17 @@ test('YouTube refresh uses offline credentials and does not expose provider erro
     requests++; assert.equal(url, 'https://oauth2.googleapis.com/token'); assert.equal(options.body.get('grant_type'), 'refresh_token'); return { ok: true, json: async () => ({ access_token: 'new-access', expires_in: 3600 }) };
   } }); assert.equal(await connector.token(), 'new-access'); assert.equal(await connector.token(), 'new-access'); assert.equal(requests, 1);
 });
+
+test('public YouTube mode cancels pending OAuth without deleting previously saved credentials', async t => {
+ const c = connections(t, async () => ({ ok: true, json: async () => ({ refresh_token: 'kept-refresh' }) }));
+ c.setApp({ clientId, clientSecret: 'private-client' });
+ const first = new URL(c.authorize()); await c.callback(new URLSearchParams({ state: first.searchParams.get('state'), code: 'valid' }));
+ assert.equal(c.metadata().mode, 'oauth');
+ const pending = new URL(c.authorize());
+ c.setSources({ youtube: 'https://www.youtube.com/live_chat?is_popout=1&v=9CAhQOG6fxM' }); c.setYouTubePublicEnabled(true);
+ assert.equal(c.metadata().mode, 'public'); assert.equal(c.metadata().publicEnabled, true);
+ assert.equal(c.runtime().YOUTUBE_REFRESH_TOKEN, 'kept-refresh');
+ await assert.rejects(c.callback(new URLSearchParams({ state: pending.searchParams.get('state'), code: 'late' })), InputError);
+ const restored = new Connections(c.file.slice(0, -'/connections.json'.length), {});
+ assert.equal(restored.metadata().mode, 'public'); assert.equal(restored.metadata().publicEnabled, true);
+});

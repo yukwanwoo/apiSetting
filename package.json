@@ -1,6 +1,6 @@
 {
   "name": "meso-live-roulette",
-  "version": "0.0.5",
+  "version": "0.0.6-beta.1",
   "private": true,
   "type": "module",
   "description": "실시간 후원 메소 룰렛과 OBS 브라우저 오버레이",
@@ -11,7 +11,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test",
-    "check": "node --check src/server.js && node --check src/engine.js && node --check src/youtube.js && node --check src/connections.js && node --check public/dashboard.js && node --check public/overlay.js && node --check src/chzzk.js && node --check src/soop.js && node --check src/toonation.js && node --check src/realtime.js && node --check src/chzzk-public.js && node --check src/desktop.js && node --check src/portable.js && node --check src/soop-transport.js && node --check src/sounds.js && node --check public/presentation.js && node --check public/sound-player.js && node --check scripts/exe-smoke.mjs",
+    "check": "node --check src/server.js && node --check src/engine.js && node --check src/youtube.js && node --check src/connections.js && node --check public/dashboard.js && node --check public/overlay.js && node --check src/chzzk.js && node --check src/soop.js && node --check src/toonation.js && node --check src/realtime.js && node --check src/chzzk-public.js && node --check src/desktop.js && node --check src/portable.js && node --check src/soop-transport.js && node --check src/sounds.js && node --check public/presentation.js && node --check public/sound-player.js && node --check scripts/exe-smoke.mjs && node --check src/youtube-public.js",
     "build:windows": "node scripts/build-windows.mjs",
     "smoke:exe": "node scripts/exe-smoke.mjs"
   },

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { isSea, getAsset } from 'node:sea';
 import { createHmac, randomBytes, timingSafeEqual, randomUUID } from 'node:crypto';
 import { Engine, InputError, PROVIDERS, validateConfig } from './engine.js';
+import { YouTubePublicConnector } from './youtube-public.js';
 import { YouTubeConnector } from './youtube.js';
 import { Sounds, MAX_AUDIO_BYTES } from './sounds.js';
 import { Connections, validateSources } from './connections.js';
@@ -59,7 +60,7 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
     return config;
   };
   const makeConnector = {
-    youtube: () => new YouTubeConnector(engine, { env: connections.runtime(), ...connectorOptions.youtube }),
+    youtube: () => connections.data.youtube.mode === 'oauth' ? new YouTubeConnector(engine, { env: connections.runtime(), ...connectorOptions.youtube }) : new YouTubePublicConnector(engine, connections, connectorOptions.youtubePublic),
     chzzk: () => connections.data.chzzk.mode === 'oauth' ? new ChzzkConnector(engine, connections, connectorOptions.chzzk) : new ChzzkPublicConnector(engine, connections, connectorOptions.chzzkPublic),
     soop: () => new SoopConnector(engine, connections, connectorOptions.soop),
     toonation: () => new ToonationConnector(engine, connections, connectorOptions.toonation)
@@ -139,11 +140,12 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
         if (url.pathname === '/api/connection' && req.method === 'GET') return json(res, 200, {
           overlayToken: keys.overlay, sources: connections.data.sources, youtube: connections.metadata(), chzzk: connections.chzzkMetadata(), soop: { enabled: connections.data.soop.enabled }, toonation: { widgetConfigured: Boolean(connections.data.toonation.widgetUrl) },
           providers: PROVIDERS.map(provider => ({ provider, ...connectors[provider].status, configured: connectors[provider].configured(),
-            mode: ({ chzzk: connections.data.chzzk.mode === 'oauth' ? 'official_oauth' : 'public_chat', soop: 'public_chat', youtube: 'official_oauth', toonation: 'alert_widget' })[provider] }))
+            mode: ({ chzzk: connections.data.chzzk.mode === 'oauth' ? 'official_oauth' : 'public_chat', soop: 'public_chat', youtube: connections.data.youtube.mode === 'oauth' ? 'official_oauth' : 'public_chat', toonation: 'alert_widget' })[provider] }))
         });
         if (req.method === 'POST') {
           const value = JSON.parse((await body(req)).toString('utf8'));
           if (url.pathname === '/api/sources') { const previous = { ...connections.data.sources }; connections.setSources(value); for (const provider of PROVIDERS) if (previous[provider] !== connections.data.sources[provider]) restartProvider(provider); return json(res, 200, { saved: true }); }
+          if (url.pathname === '/api/youtube/connection') { connections.setYouTubePublicEnabled(value.enabled); restartProvider('youtube'); return json(res, 200, { saved: true }); }
           if (url.pathname === '/api/youtube/app') { connections.setApp(value); restartProvider('youtube'); return json(res, 200, { saved: true }); }
           if (url.pathname === '/api/youtube/authorize') return json(res, 200, { url: connections.authorize() });
           if (url.pathname === '/api/youtube/disconnect') { connections.disconnect(); restartProvider('youtube'); return json(res, 200, { saved: true }); }

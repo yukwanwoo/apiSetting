@@ -1,3 +1,5 @@
+import { DEFAULT_COMMENTS, BUILTIN_SOUNDS, formatComment } from './presentation.js';
+import { SoundPlayer } from './sound-player.js';
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('ko-KR');
 const mesoView = document.body.dataset.view === 'meso';
@@ -9,9 +11,8 @@ const providers = { chzzk: '치지직', soop: 'SOOP', youtube: 'YouTube', toonat
 const colors = ['#7260b8', '#354763', '#497758', '#54649a', '#74608b', '#9c744c', '#a4bc57'];
 let state, offset = 0, frame, lastBalance, hideTimer, lastSoundId;
 const samplePrizes = Array.from({ length: 11 }, (_, i) => ({ meso: i * 1000000, weight: i === 0 ? 90 : 91 }));
-const alertSound = new Audio('/alert.wav');
-alertSound.preload = 'auto';
-function hideRoulette() { cancelAnimationFrame(frame); document.querySelector('.roulette-overlay').hidden = true; }
+const alertSound = new SoundPlayer();
+function hideRoulette() { alertSound.stop(); cancelAnimationFrame(frame); document.querySelector('.roulette-overlay').hidden = true; }
 function short(n) { return n === 0 ? '0 메소' : n >= 10000 ? `${fmt(n / 10000)}만` : fmt(n); }
 function draw(prizes, angle = 0, defense = false) {
   const canvas = $('wheel'); if (!canvas) return;
@@ -42,7 +43,7 @@ function update(next) {
   offset = next.serverTime - Date.now(); state = next;
   if (mesoView) {
     $('meso-balance').replaceChildren(document.createTextNode(`${fmt(state.balance)} `)); const small = document.createElement('small'); small.textContent = '메소'; $('meso-balance').append(small);
-    const result = state.active?.result;
+    const result = state.latestChange ?? state.active?.result;
     if (result) { $('meso-change').textContent = `${result.actualDelta < 0 ? '−' : '+'}${fmt(Math.abs(result.actualDelta))} 메소 · ${result.nickname}${result.test ? ' (테스트)' : ''}`; $('meso-change').className = result.actualDelta < 0 ? 'negative' : 'positive'; }
     if (lastBalance !== undefined && lastBalance !== state.balance) { const panel = document.querySelector('.meso-overlay'); panel.classList.remove('pulse'); void panel.offsetWidth; panel.classList.add('pulse'); }
     lastBalance = state.balance; return;
@@ -51,8 +52,16 @@ function update(next) {
   clearTimeout(hideTimer);
   const active = state.active;
   const panel = document.querySelector('.roulette-overlay');
+  panel.style.transform = `scale(${(state.overlay?.scalePercent ?? 100) / 100})`;
   panel.hidden = !active && !preview;
   if (!active) {
+    alertSound.stop();
+    const sample = state.previewRoulette;
+    if (preview && sample) {
+      const fake = { roulette: sample, donation: { nickname: '행운의 시청자', provider: 'chzzk', amountKrw: sample.triggerKrw, unit: 'KRW', test: false } };
+      for (const [key, id] of [['heading', 'overlay-kind'], ['donor', 'overlay-donor'], ['donation', 'overlay-donation']]) { $(id).textContent = formatComment(sample.comments?.[key] ?? DEFAULT_COMMENTS[key], fake); $(id).hidden = !$(id).textContent; }
+      $('result-label').textContent = 'READY FOR YOUR LUCK'; $('result-amount').textContent = '행운을 돌려보세요'; $('result-note').textContent = ''; $('overlay-result').className = 'overlay-result'; draw(sample.prizes, 0, sample.kind === 'defense'); return;
+    }
     $('overlay-kind').textContent = 'MESO LIVE'; $('overlay-donor').textContent = '다음 행운을 기다리는 중'; $('overlay-donation').textContent = '후원이 도착하면 룰렛이 돌아갑니다'; $('result-label').textContent = 'READY FOR YOUR LUCK'; $('result-amount').textContent = '행운을 돌려보세요'; $('result-note').textContent = ''; $('overlay-result').className = 'overlay-result'; draw(samplePrizes); return;
   }
   const remaining = active.endsAt + active.roulette.resultHoldMs - (Date.now() + offset);
@@ -61,14 +70,13 @@ function update(next) {
   if (active.id !== lastSoundId) {
     lastSoundId = active.id;
     if (!preview && !active.settled && Date.now() + offset - active.startedAt < 1500 && (state.sound?.volume ?? 50) > 0) {
-      alertSound.volume = (state.sound?.volume ?? 50) / 100;
-      alertSound.currentTime = 0;
-      alertSound.play().catch(() => {});
+      const sound = active.roulette.sound ?? { source: 'default', startMs: 0, endMs: null };
+      const builtin = BUILTIN_SOUNDS.find(s => s.id === sound.source);
+      const url = builtin?.url ?? `/sounds/${encodeURIComponent(sound.source)}.wav?token=${encodeURIComponent(token)}`;
+      alertSound.play(url, sound, active.roulette, state.sound?.volume ?? 50, remaining).catch(() => {});
     }
   }
-  $('overlay-kind').textContent = `${active.roulette.kind === 'attack' ? 'ATTACK' : 'DEFENSE'} ROULETTE${active.donation.test ? ' · TEST' : ''}`;
-  $('overlay-donor').textContent = `${active.donation.nickname}님의 ${active.roulette.name}`;
-  $('overlay-donation').textContent = `${providers[active.donation.provider]} · ${fmt(active.donation.amountKrw)}원 후원${active.donation.unit === 'STAR' ? ` (별풍선 ${fmt(active.donation.amount)}개)` : ''}`;
+  for (const [key, id] of [['heading', 'overlay-kind'], ['donor', 'overlay-donor'], ['donation', 'overlay-donation']]) { $(id).textContent = formatComment(active.roulette.comments?.[key] ?? DEFAULT_COMMENTS[key], active); $(id).hidden = !$(id).textContent; }
   $('overlay-result').className = `overlay-result${active.roulette.kind === 'defense' ? ' defense' : ''}`;
   if (active.settled) {
     $('result-label').textContent = 'YOUR RESULT'; $('result-amount').textContent = `${active.roulette.kind === 'defense' ? '−' : '+'}${fmt(active.prize.meso)} 메소`;

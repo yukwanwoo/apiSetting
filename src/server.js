@@ -4,9 +4,10 @@ import { resolve, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isSea, getAsset } from 'node:sea';
 import { createHmac, randomBytes, timingSafeEqual, randomUUID } from 'node:crypto';
-import { Engine, InputError, PROVIDERS } from './engine.js';
+import { Engine, InputError, PROVIDERS, validateConfig } from './engine.js';
 import { YouTubeConnector } from './youtube.js';
-import { Connections } from './connections.js';
+import { Sounds, MAX_AUDIO_BYTES } from './sounds.js';
+import { Connections, validateSources } from './connections.js';
 import { ChzzkPublicConnector } from './chzzk-public.js';
 import { ChzzkConnector } from './chzzk.js';
 import { SoopConnector } from './soop.js';
@@ -19,6 +20,20 @@ function sameSecret(a, b) {
   const aa = Buffer.from(a), bb = Buffer.from(b);
   return aa.length === bb.length && timingSafeEqual(aa, bb);
 }
+function sendAudio(req, res, file) {
+  const headers = { 'Content-Type': 'audio/wav', 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, no-store' };
+  let start = 0, end = file.length - 1, status = 200;
+  if (req.headers.range) {
+    const range = req.headers.range.match(/^bytes=(\d*)-(\d*)$/);
+    if (!range || (!range[1] && !range[2])) { res.writeHead(416, { ...headers, 'Content-Range': `bytes */${file.length}` }); res.end(); return; }
+    if (range[1]) { start = Number(range[1]); end = range[2] ? Math.min(Number(range[2]), end) : end; }
+    else { const count = Number(range[2]); start = Math.max(0, file.length - count); if (!count) start = file.length; }
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= file.length || end < start) { res.writeHead(416, { ...headers, 'Content-Range': `bytes */${file.length}` }); res.end(); return; }
+    status = 206; headers['Content-Range'] = `bytes ${start}-${end}/${file.length}`;
+  }
+  res.writeHead(status, { ...headers, 'Content-Length': end - start + 1 });
+  res.end(req.method === 'HEAD' ? undefined : file.subarray(start, end + 1));
+}
 function loadKeys(dataDir) {
   const file = resolve(dataDir, 'keys.json');
   mkdirSync(dataDir, { recursive: true });
@@ -28,11 +43,21 @@ function loadKeys(dataDir) {
   return keys;
 }
 
-export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process.env, engine: suppliedEngine, connectorOptions = {} } = {}) {
+export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process.env, engine: suppliedEngine, connectorOptions = {}, onShutdown } = {}) {
   keys ||= loadKeys(dataDir);
   keys = { admin: env.ADMIN_TOKEN || keys.admin, overlay: env.OVERLAY_TOKEN || keys.overlay, webhook: env.WEBHOOK_SECRET || keys.webhook };
   const engine = suppliedEngine || new Engine(resolve(dataDir, 'state.json'));
   const connections = new Connections(dataDir, env);
+  const sounds = new Sounds(dataDir);
+  let shuttingDown = false;
+  const checkSoundReferences = config => {
+    for (const r of config.roulettes) {
+      if (!sounds.has(r.sound.source)) throw new InputError(`${r.name}: 선택한 알림음 파일을 찾을 수 없습니다.`);
+      const uploaded = sounds.uploads.find(s => s.id === r.sound.source);
+      if (uploaded && (r.sound.startMs >= uploaded.durationMs || (r.sound.endMs !== null && r.sound.endMs > uploaded.durationMs))) throw new InputError(`${r.name}: 재생 구간이 파일 길이를 벗어납니다.`);
+    }
+    return config;
+  };
   const makeConnector = {
     youtube: () => new YouTubeConnector(engine, { env: connections.runtime(), ...connectorOptions.youtube }),
     chzzk: () => connections.data.chzzk.mode === 'oauth' ? new ChzzkConnector(engine, connections, connectorOptions.chzzk) : new ChzzkPublicConnector(engine, connections, connectorOptions.chzzkPublic),
@@ -49,7 +74,7 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
   const viewerState = () => {
     const state = engine.snapshot();
     // OBS clients only need the currently displayed spin and the balance.
-    return { balance: state.balance, active: state.active, queueLength: state.queue.length, serverTime: state.serverTime, sound: state.config.sound };
+    return { balance: state.balance, active: state.active, queueLength: state.queue.length, serverTime: state.serverTime, sound: state.config.sound, overlay: state.config.overlay, latestChange: state.history[0] ?? null, previewRoulette: state.config.roulettes[0] };
   };
   const send = () => {
     for (const client of clients) {
@@ -58,17 +83,26 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
     }
   };
   engine.on('state', send);
-  async function body(req) {
+  async function body(req, limit = 128_000) {
     const chunks = []; let size = 0;
-    for await (const chunk of req) { size += chunk.length; if (size > 128_000) throw new InputError('요청이 너무 큽니다.'); chunks.push(chunk); }
+    for await (const chunk of req) { size += chunk.length; if (size > limit) throw new InputError('요청이 너무 큽니다.'); chunks.push(chunk); }
     return Buffer.concat(chunks);
   }
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'self'");
     try {
       const url = new URL(req.url, 'http://localhost');
+      if (shuttingDown) return json(res, 503, { error: '프로그램 종료 중입니다.' });
+      if (url.pathname.startsWith('/sounds/')) {
+        if (!['GET', 'HEAD'].includes(req.method)) return json(res, 405, { error: 'GET만 지원합니다.' });
+        if (!viewer(req, url)) return json(res, 401, { error: '인증이 필요합니다.' });
+        const id = url.pathname.match(/^\/sounds\/([a-f0-9-]{36})\.wav$/)?.[1];
+        if (!id || !sounds.has(id)) return json(res, 404, { error: '음성 파일을 찾을 수 없습니다.' });
+        const file = sounds.read(id);
+        sendAudio(req, res, file); return;
+      }
       if (url.pathname === '/oauth/youtube/callback' && req.method === 'GET') {
         await connections.callback(url.searchParams); restartProvider('youtube');
         res.writeHead(303, { Location: '/?youtube=connected', 'Cache-Control': 'no-store' }); res.end(); return;
@@ -99,6 +133,8 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
       }
       if (url.pathname.startsWith('/api/')) {
         if (!admin(req)) return json(res, 401, { error: '관리자 키를 확인하세요.' });
+        if (url.pathname === '/api/sounds' && req.method === 'GET') return json(res, 200, { sounds: sounds.list() });
+        if (url.pathname === '/api/sounds/upload' && req.method === 'POST') return json(res, 200, sounds.upload(await body(req, MAX_AUDIO_BYTES), url.searchParams.get('name')));
         if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, engine.snapshot());
         if (url.pathname === '/api/connection' && req.method === 'GET') return json(res, 200, {
           overlayToken: keys.overlay, sources: connections.data.sources, youtube: connections.metadata(), chzzk: connections.chzzkMetadata(), soop: { enabled: connections.data.soop.enabled }, toonation: { widgetConfigured: Boolean(connections.data.toonation.widgetUrl) },
@@ -118,7 +154,21 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
           if (url.pathname === '/api/soop/connection') { connections.setSoopEnabled(value.enabled); restartProvider('soop'); return json(res, 200, { saved: true }); }
           if (url.pathname === '/api/toonation/widget') { connections.setToonationWidget(value.widgetUrl); restartProvider('toonation'); return json(res, 200, { saved: true }); }
           if (url.pathname === '/api/provider/reconnect') { if (!PROVIDERS.includes(value.provider)) throw new InputError('플랫폼을 확인하세요.'); restartProvider(value.provider); return json(res, 200, { restarted: true }); }
-          if (url.pathname === '/api/config') return json(res, 200, engine.updateConfig(value));
+          if (url.pathname === '/api/sounds/delete') {
+            if (engine.data.config.roulettes.some(r => r.sound.source === value.id) || engine.data.active?.roulette.sound?.source === value.id || engine.data.queue.some(item => item.roulette.sound?.source === value.id)) throw new InputError('룰렛에서 사용 중인 소리는 먼저 다른 알림음으로 변경하고 저장하세요.');
+            sounds.remove(value.id); return json(res, 200, { deleted: true });
+          }
+          if (url.pathname === '/api/shutdown') {
+            const config = checkSoundReferences(validateConfig(value.config));
+            const sources = value.sources === undefined ? undefined : validateSources(value.sources);
+            engine.updateConfig(config);
+            if (sources) connections.setSources(sources);
+            engine.save(); connections.save(); shuttingDown = true;
+            res.once('finish', () => setImmediate(() => { close(); onShutdown?.(); }));
+            return json(res, 200, { saved: true, shutdown: true });
+          }
+          if (url.pathname === '/api/config') return json(res, 200, engine.updateConfig(checkSoundReferences(validateConfig(value))));
+          if (url.pathname === '/api/balance/adjust') return json(res, 200, engine.adjustBalance(value.delta, value.note));
           if (url.pathname === '/api/balance') return json(res, 200, engine.setBalance(value.balance));
           if (url.pathname === '/api/test-donation') return json(res, 200, engine.receive(value.provider, {
             eventId: `test-${randomUUID()}`, nickname: value.nickname, amount: value.amount, unit: value.unit
@@ -127,10 +177,11 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
         return json(res, 404, { error: '경로를 찾지 못했습니다.' });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: '지원하지 않는 요청입니다.' });
-      const allowed = new Set(['/', '/index.html', '/overlay.html', '/meso.html', '/styles.css', '/dashboard.js', '/overlay.js', '/alert.wav']);
+      const allowed = new Set(['/', '/index.html', '/overlay.html', '/meso.html', '/styles.css', '/dashboard.js', '/overlay.js', '/presentation.js', '/sound-player.js', '/alert.wav', '/chime.wav', '/bell.wav']);
       if (!allowed.has(url.pathname)) return json(res, 404, { error: '경로를 찾지 못했습니다.' });
       const path = resolve(ROOT, 'public', url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
       const file = isSea() ? Buffer.from(getAsset(`public/${url.pathname === '/' ? 'index.html' : url.pathname.slice(1)}`)) : readFileSync(path);
+      if (extname(path) === '.wav') { sendAudio(req, res, file); return; }
       res.writeHead(200, { 'Content-Type': MIME[extname(path)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : file);
     } catch (error) {
@@ -141,12 +192,13 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
   });
   engine.start(); for (const connector of Object.values(connectors)) connector.start();
   server.on('close', () => { engine.close(); stopProviders(); engine.off('state', send); });
-  return { server, engine, get youtube() { return connectors.youtube; }, connectors, keys, close: () => { engine.close(); stopProviders(); for (const client of clients) client.res.end(); server.close(); } };
+  const close = () => { engine.close(); stopProviders(); for (const client of clients) client.res.end(); server.close(); };
+  return { server, engine, sounds, get youtube() { return connectors.youtube; }, connectors, keys, close };
 }
 
 if (!isSea() && process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 3000), host = process.env.HOST || '127.0.0.1';
-  const app = createApp({ dataDir: process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : undefined });
+  const app = createApp({ dataDir: process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : undefined, onShutdown: () => setTimeout(() => process.exit(0), 250) });
   app.server.listen(port, host, () => {
     console.log(`메소 라이브 룰렛 서버 시작 (${host}:${port})`);
     console.log('관리자 키: data/keys.json의 admin 항목 또는 ADMIN_TOKEN 환경 변수. 로그에는 키를 출력하지 않습니다.');

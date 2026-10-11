@@ -44,7 +44,7 @@ async function request(path, value) {
 }
 try {
   await start();
-  for (const path of ['/', '/dashboard.js', '/styles.css', '/overlay.html', '/overlay.js', '/meso.html']) {
+  for (const path of ['/', '/dashboard.js', '/styles.css', '/overlay.html', '/overlay.js', '/meso.html', '/presentation.js', '/sound-player.js']) {
     const response = await fetch(`http://127.0.0.1:3000${path}`); assert.equal(response.status, 200, path); assert.ok((await response.text()).length > 100);
   }
   assert.equal((await fetch('http://127.0.0.1:3000/api/state')).status, 401);
@@ -52,7 +52,14 @@ try {
   assert.equal(state.config.roulettes[1].triggerKrw, 1100);
   assert.equal(state.config.roulettes[0].prizes.length, 11);
   const wav = await fetch('http://127.0.0.1:3000/alert.wav'); assert.equal(wav.status, 200); assert.equal(wav.headers.get('content-type'), 'audio/wav'); assert.equal(Buffer.from(await wav.arrayBuffer()).toString('ascii', 0, 4), 'RIFF');
+  for (const path of ['/chime.wav', '/bell.wav']) { const response = await fetch(`http://127.0.0.1:3000${path}`); assert.equal(response.status, 200); assert.equal(Buffer.from(await response.arrayBuffer()).toString('ascii', 0, 4), 'RIFF'); }
+  const audio = Buffer.alloc(44 + 48000);
+  audio.write('RIFF'); audio.writeUInt32LE(audio.length - 8, 4); audio.write('WAVEfmt ', 8); audio.writeUInt32LE(16, 16); audio.writeUInt16LE(1, 20); audio.writeUInt16LE(1, 22); audio.writeUInt32LE(24000, 24); audio.writeUInt32LE(48000, 28); audio.writeUInt16LE(2, 32); audio.writeUInt16LE(16, 34); audio.write('data', 36); audio.writeUInt32LE(48000, 40);
+  const uploadResponse = await fetch('http://127.0.0.1:3000/api/sounds/upload?name=EXE-test.wav', { method: 'POST', headers: { Authorization: `Bearer ${JSON.parse(readFileSync(join(dataDir, 'keys.json'))).admin}`, 'Content-Type': 'audio/wav' }, body: audio });
+  assert.equal(uploadResponse.status, 200); const uploaded = await uploadResponse.json();
   const config = state.config;
+  config.overlay.scalePercent = 55; config.roulettes[0].comments.donor = '{nickname} EXE 확인';
+  config.roulettes[0].sound = { source: uploaded.id, startMs: 100, endMs: 600 };
   config.sound.volume = 35;
   config.roulettes[0].durationMs = 100; config.roulettes[0].resultHoldMs = 0;
   config.roulettes[0].prizes = [{ id: 'exe-fixed', meso: 1_000_000, weight: 1000 }];
@@ -60,6 +67,9 @@ try {
   await request('/api/test-donation', { provider: 'soop', nickname: 'EXE smoke', amount: 10, unit: 'STAR' });
   for (let i = 0; i < 50 && (await request('/api/state')).balance !== 31_000_000; i++) await delay(100);
   assert.equal((await request('/api/state')).balance, 31_000_000);
+  await request('/api/balance/adjust', { delta: -500, note: 'EXE manual' });
+  assert.equal((await request('/api/state')).balance, 30_999_500);
+  await request('/api/balance/adjust', { delta: 500 });
   const keysBefore = readFileSync(join(dataDir, 'keys.json'), 'utf8');
   assert.ok(!output.includes(JSON.parse(keysBefore).admin), 'admin key leaked to console');
   await stop();
@@ -68,7 +78,18 @@ try {
   await start();
   assert.equal((await request('/api/state')).balance, 31_000_000, 'persistent balance');
   assert.equal(readFileSync(join(dataDir, 'keys.json'), 'utf8'), keysBefore, 'persistent keys');
-  assert.equal((await request('/api/state')).config.sound.volume, 35);
+  const movedState = await request('/api/state');
+  assert.equal(movedState.config.sound.volume, 35);
+  assert.equal(movedState.config.overlay.scalePercent, 55);
+  assert.equal(movedState.config.roulettes[0].comments.donor, '{nickname} EXE 확인');
+  assert.equal(movedState.config.roulettes[0].sound.source, uploaded.id);
+  assert.deepEqual(readFileSync(join(dataDir, 'sounds', `${uploaded.id}.wav`)), audio);
+  const media = await fetch(`http://127.0.0.1:3000${uploaded.url}?token=${JSON.parse(keysBefore).overlay}`); assert.equal(media.status, 200); assert.deepEqual(Buffer.from(await media.arrayBuffer()), audio);
+  movedState.config.overlay.scalePercent = 65;
+  assert.equal((await request('/api/shutdown', { config: movedState.config })).saved, true);
+  for (let i = 0; i < 100 && child.exitCode === null && child.signalCode === null; i++) await delay(50);
+  assert.equal(child.exitCode, 0, 'save-and-exit must terminate the executable');
+  assert.equal(JSON.parse(readFileSync(join(dataDir, 'state.json'))).config.overlay.scalePercent, 65);
   for (const [file, contents] of Object.entries(legacyFiles)) assert.equal(readFileSync(join(legacyDir, file), 'utf8'), contents, 'legacy AppData must remain untouched');
-  console.log('EXE smoke passed: AppData and DATA_DIR ignored, portable Unicode folder, embedded pages/audio, roulette settlement, folder move and settings/key persistence.');
+  console.log('EXE smoke passed: AppData and DATA_DIR ignored, portable Unicode folder, embedded pages/audio, roulette settlement, folder move, audio upload, presentation settings, manual adjustments, save-and-exit and settings/key persistence.');
 } catch (error) { console.error(output); throw error; } finally { await stop(); rmSync(temp, { recursive: true, force: true }); }

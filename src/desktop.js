@@ -17,7 +17,7 @@ function fail(error) {
 }
 try {
   const { dataDir } = preparePortableData(isSea() ? process.execPath : resolve(dirname(fileURLToPath(import.meta.url)), '../MesoLiveRoulette.exe'));
-  app = createApp({ dataDir });
+  app = createApp({ dataDir, onShutdown: () => setTimeout(() => process.exit(0), 250) });
   app.server.once('error', fail);
   app.server.listen(3000, '127.0.0.1', () => {
     console.log('메소 라이브 룰렛 — http://127.0.0.1:3000');

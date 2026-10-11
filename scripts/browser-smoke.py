@@ -1,18 +1,18 @@
-import json
+import json, wave, math, struct
 from pathlib import Path
 import os, socket, subprocess, tempfile, time, urllib.request, shutil
 from playwright.sync_api import sync_playwright
 
 def smoke(base, data_dir, artifacts):
  with sync_playwright() as p:
-  browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium') or shutil.which('google-chrome'), headless=True, args=['--no-sandbox'])
+  browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium') or shutil.which('google-chrome'), headless=True, args=['--no-sandbox','--autoplay-policy=no-user-gesture-required'])
   page=browser.new_page(viewport={'width':1440,'height':1100},device_scale_factor=1)
   errors=[]
   browser_play = """(() => {
     window.audioPlays=[];
     const original=HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play=function(){
-      window.audioPlays.push({volume:this.volume,src:this.src});
+      window.audioPlays.push({volume:this.volume,src:this.src,start:this.currentTime}); window.lastAudio=this;
       return original.call(this);
     };
   })();"""
@@ -41,12 +41,50 @@ def smoke(base, data_dir, artifacts):
   page.frame_locator('#preview').locator('#wheel').wait_for()
   page.screenshot(path=str(Path(artifacts, 'studio-desktop.png')),full_page=True)
   page.locator('[data-tab=settings]').click()
+  assert page.locator('#sound-end').input_value()=='2.5'
+  audio_path=Path(artifacts,'five-seconds.wav')
+  with wave.open(str(audio_path),'wb') as wav:
+   wav.setparams((1,2,24000,0,'NONE','not compressed'))
+   wav.writeframes(b''.join(struct.pack('<h',int(math.sin(i/24000*2*math.pi*440)*5000)) for i in range(24000*5)))
+  page.locator('#sound-upload').set_input_files(str(audio_path))
+  page.wait_for_function("() => document.getElementById('notice').textContent.includes('음성 파일을 추가했습니다')")
+  uploaded_id=page.locator('#sound-source').input_value()
+  assert uploaded_id not in ['default','chime','bell']
+  assert page.locator('#sound-start').input_value()=='0'
+  assert page.locator('#sound-end').input_value()=='2.5'
+  page.locator('#test-sound').click()
+  page.wait_for_function('() => audioPlays.length>=1 && window.lastAudio.duration>4.9')
+  page.wait_for_function('() => window.lastAudio.paused')
+  assert 2.3 <= page.evaluate('window.lastAudio.currentTime') <= 2.75
+  page.locator('#sound-auto-end').uncheck()
+  page.locator('#sound-start').fill('1')
+  page.locator('#sound-end').fill('1.5')
+  page.locator('#test-sound').click()
+  page.wait_for_function('() => audioPlays.length>=2')
+  assert page.evaluate('audioPlays.at(-1).start')==1
+  page.wait_for_function('() => window.lastAudio.paused')
+  assert 1.35 <= page.evaluate('window.lastAudio.currentTime') <= 1.75
+  page.locator('#sound-source').select_option('chime')
+  assert page.locator('#sound-auto-end').is_checked()
+  assert page.locator('#sound-start').input_value()=='0'
+  page.locator('#test-sound').click()
+  page.wait_for_function("() => audioPlays.at(-1).src.endsWith('/chime.wav')")
+  page.locator('#stop-sound').click()
+  assert page.evaluate('window.lastAudio.paused')
+  page.locator('#sound-source').select_option(uploaded_id)
+  page.locator('#sound-auto-end').uncheck()
+  page.locator('#sound-start').fill('1')
+  page.locator('#sound-end').fill('1.5')
+  page.locator('#overlay-scale').fill('50')
+  page.locator('#comment-donor').fill('{nickname} 등장! {roulette}')
+  page.locator('#comment-donation').fill('{platform} {amount}원{stars}')
   page.locator('#roulette-amount').fill('3300')
   page.locator('#roulette-duration').fill('0.6')
   page.locator('#roulette-hold').fill('3')
   page.locator('#sound-volume').evaluate("el=>{el.value='35';el.dispatchEvent(new Event('input',{bubbles:true}));}")
   assert page.locator('#sound-volume-label').inner_text()=='35%'
   page.locator('#test-sound').click()
+  page.wait_for_function('() => audioPlays.at(-1).volume===0.35')
   assert page.evaluate('audioPlays.at(-1).volume')==0.35
   while page.locator('.remove-prize').count()>1: page.locator('.remove-prize').last.click()
   page.locator('#prize-rows input').nth(0).fill('1000000')
@@ -65,8 +103,15 @@ def smoke(base, data_dir, artifacts):
   page.locator('#test-amount').fill('33')
   page.locator('#test-form button').click()
   obs.locator('.roulette-overlay').wait_for(state='visible')
-  obs.wait_for_function('audioPlays.length===1')
+  obs.wait_for_function('() => audioPlays.length===1')
   assert obs.evaluate('audioPlays[0].volume')==0.35
+  assert '/sounds/'+uploaded_id in obs.evaluate('audioPlays[0].src')
+  assert obs.evaluate('audioPlays[0].start')==1, obs.evaluate('audioPlays')
+  assert '행운의 시청자 등장! 공격 룰렛' in obs.locator('#overlay-donor').inner_text()
+  assert 'SOOP 3,300원' in obs.locator('#overlay-donation').inner_text()
+  assert obs.locator('.roulette-overlay').evaluate('el=>el.style.transform')=='scale(0.5)'
+  obs.wait_for_function('() => window.lastAudio.paused')
+  assert 1.3 <= obs.evaluate('window.lastAudio.currentTime') <= 1.8
   page.wait_for_function("() => document.getElementById('balance').textContent === '31,000,000'")
   assert '테스트' in page.locator('#history').inner_text()
   assert '+1,000,000' in page.frame_locator('#preview').locator('#result-amount').inner_text()
@@ -81,6 +126,16 @@ def smoke(base, data_dir, artifacts):
   assert page.frame_locator('#preview').locator('.roulette-overlay').is_visible()
   assert page.frame_locator('#preview').locator('body').evaluate('()=>audioPlays.length')==0
   assert meso.locator('.meso-overlay').is_visible()
+  page.locator('#adjust-amount').fill('500')
+  page.locator('#adjust-note').fill('수동 추가 확인')
+  page.locator('#adjust-form button').click()
+  page.wait_for_function("() => document.getElementById('balance').textContent === '31,000,500'")
+  meso.wait_for_function("() => document.getElementById('meso-change').textContent.includes('수동 추가 확인')")
+  page.locator('#adjust-direction').select_option('subtract')
+  page.locator('#adjust-amount').fill('500')
+  page.locator('#adjust-form button').click()
+  page.wait_for_function("() => document.getElementById('balance').textContent === '31,000,000'")
+  assert '수동 메소 감소' in page.locator('#history').inner_text()
   page.locator('[data-tab=settings]').click()
   page.locator('#roulette-select').select_option('defense')
   page.locator('#roulette-amount').fill('2200')
@@ -138,8 +193,20 @@ def smoke(base, data_dir, artifacts):
   page.set_viewport_size({'width':390,'height':844})
   page.screenshot(path=str(Path(artifacts, 'studio-mobile.png')),full_page=True)
   assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+  page.locator('[data-tab=settings]').click()
+  page.locator('#overlay-scale').fill('60')
+  page.once('dialog',lambda d:d.dismiss())
+  page.locator('#shutdown').click()
+  assert page.locator('#app').is_visible()
+  page.once('dialog',lambda d:d.accept())
+  page.locator('#shutdown').click()
+  page.wait_for_function("() => document.getElementById('server-status').textContent === '프로그램 종료됨'")
+  saved=json.loads(Path(data_dir,'state.json').read_text())
+  assert saved['config']['overlay']['scalePercent']==60
+  assert saved['config']['roulettes'][0]['sound']['source']==uploaded_id
+  assert saved['balance']==30000000
   assert not errors, errors
-  print('Browser smoke passed: login, preview, probabilities, custom amount, SOOP conversion, attack, defense, negative balance, persistence, initial reset, URL settings, OBS balance, mobile layout; no JS exceptions.')
+  print('Browser smoke passed: login, preview, probabilities, custom amount, SOOP conversion, attack, defense, negative balance, persistence, initial reset, URL settings, OBS balance, mobile layout, scale, comment templates, audio upload/automatic trim/custom trim/chime, manual adjustments, cancel/confirm save-and-exit; no JS exceptions.')
   browser.close()
 
 if __name__ == '__main__':

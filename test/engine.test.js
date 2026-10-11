@@ -87,3 +87,42 @@ test('legacy defaults upgrade without resetting balance or customized rules', t 
  assert.equal(restored.data.config.roulettes[1].triggerKrw,1100); assert.equal(restored.data.config.roulettes[1].prizes.length,11);
  assert.equal(restored.data.config.sound.volume,50);
 });
+
+test('manual adjustments during an active spin persist and settlement uses the adjusted balance', t => {
+  const { engine, advance, file } = fixture(t);
+  engine.receive('chzzk', donation('manual-active'));
+  const activeId = engine.data.active.id;
+  engine.adjustBalance(-31_000_000, '진행 중 수동 감소');
+  assert.equal(engine.data.balance, -1_000_000);
+  assert.equal(engine.data.active.id, activeId);
+  assert.equal(engine.data.history[0].kind, 'manual');
+  advance(1000);
+  assert.equal(engine.data.balance, 9_000_000);
+  assert.equal(engine.data.history[1].actualDelta, -31_000_000);
+  const restarted = new Engine(file); t.after(() => restarted.close());
+  assert.equal(restarted.data.balance, 9_000_000);
+  restarted.pump(); assert.equal(restarted.data.balance, 9_000_000);
+});
+test('manual adjustments reject invalid deltas and prohibited negative balances without changing state', t => {
+  const { engine } = fixture(t);
+  for (const delta of [0, 1.5, Number.NaN, 1_000_000_000_001]) assert.throws(() => engine.adjustBalance(delta), InputError);
+  assert.throws(() => engine.adjustBalance(1, 'x'.repeat(101)), InputError);
+  const config = defaultConfig(); config.allowNegative = false; engine.updateConfig(config);
+  assert.throws(() => engine.adjustBalance(-30_000_001), InputError);
+  assert.equal(engine.data.balance, 30_000_000); assert.equal(engine.data.history.length, 0);
+});
+test('legacy presentation defaults upgrade while custom templates, scale and sound trims persist', t => {
+  const { engine, file } = fixture(t); const config = defaultConfig();
+  delete config.overlay; for (const r of config.roulettes) { delete r.comments; delete r.sound; }
+  const upgraded = validateConfig(config); assert.equal(upgraded.overlay.scalePercent, 100);
+  assert.equal(upgraded.roulettes[0].comments.donor, '{nickname}님의 {roulette}');
+  assert.deepEqual(upgraded.roulettes[0].sound, { source: 'default', startMs: 0, endMs: null });
+  upgraded.overlay.scalePercent = 50; upgraded.roulettes[0].comments.donor = '{nickname} 등장!';
+  upgraded.roulettes[0].sound = { source: 'chime', startMs: 200, endMs: 700 };
+  engine.updateConfig(upgraded);
+  const restarted = new Engine(file); t.after(() => restarted.close());
+  assert.deepEqual(restarted.data.config, upgraded);
+  for (const scale of [24, 151, 50.5]) { const bad = structuredClone(upgraded); bad.overlay.scalePercent = scale; assert.throws(() => validateConfig(bad), InputError); }
+  const bad = structuredClone(upgraded); bad.roulettes[0].sound.endMs = 200; assert.throws(() => validateConfig(bad), InputError);
+  bad.roulettes[0].sound = { source: 'default', startMs: 2500, endMs: null }; assert.throws(() => validateConfig(bad), InputError);
+});

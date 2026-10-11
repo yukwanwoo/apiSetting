@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { DEFAULT_COMMENTS } from '../public/presentation.js';
 
 export const PROVIDERS = ['chzzk', 'soop', 'youtube', 'toonation'];
 export const MAX_MESO = 10_000_000;
@@ -14,11 +15,11 @@ export function defaultConfig() {
   const amounts = Array.from({ length: 11 }, (_, i) => i * 1_000_000);
   const weights = amounts.map((_, i) => i === 0 ? 90 : 91);
   return {
-    allowNegative: true, initialBalance: 30_000_000, sound: { volume: 50 },
+    allowNegative: true, initialBalance: 30_000_000, sound: { volume: 50 }, overlay: { scalePercent: 100 },
     roulettes: ['attack', 'defense'].map((kind, i) => ({
       id: kind, name: i === 0 ? '공격 룰렛' : '방어 룰렛', kind,
       triggerKrw: i === 0 ? 1000 : 1100, durationMs: 1000, resultHoldMs: 1500,
-      enabled: true,
+      enabled: true, comments: { ...DEFAULT_COMMENTS }, sound: { source: 'default', startMs: 0, endMs: null },
       prizes: amounts.map((meso, j) => ({ id: `${kind}-${j}`, meso, weight: weights[j] }))
     }))
   };
@@ -31,6 +32,8 @@ export function validateConfig(value) {
   requireInput(safeInteger(value.initialBalance, value.allowNegative ? -MAX_TOTAL : 0, MAX_TOTAL), '시작 메소 잔액 범위를 확인하세요.');
   const sound = value.sound === undefined ? { volume: 50 } : value.sound;
   requireInput(sound && safeInteger(sound.volume, 0, 100), '알림음 음량은 0~100의 정수입니다.');
+  const overlay = value.overlay ?? { scalePercent: 100 };
+  requireInput(overlay && safeInteger(overlay.scalePercent, 25, 150), '룰렛 크기는 25~150%의 정수입니다.');
   const ids = new Set(), amounts = new Set();
   const roulettes = value.roulettes.map(r => {
     requireInput(r && typeof r.id === 'string' && /^[a-zA-Z0-9_-]{1,50}$/.test(r.id) && !ids.has(r.id), '룰렛 ID가 유효하지 않거나 중복입니다.'); ids.add(r.id);
@@ -41,6 +44,12 @@ export function validateConfig(value) {
     if (r.enabled) { requireInput(!amounts.has(r.triggerKrw), '활성 룰렛의 후원 조건 금액은 서로 달라야 합니다.'); amounts.add(r.triggerKrw); }
     requireInput(safeInteger(r.durationMs, 100, 60_000), '애니메이션 시간은 0.1~60초입니다.');
     requireInput(safeInteger(r.resultHoldMs, 0, 30_000), '결과 표시 시간은 0~30초입니다.');
+    const comments = r.comments ?? DEFAULT_COMMENTS;
+    requireInput(comments && ['heading', 'donor', 'donation'].every(key => typeof comments[key] === 'string' && comments[key].length <= 250), '코멘트는 줄마다 250자 이하로 입력하세요.');
+    const alert = r.sound ?? { source: 'default', startMs: 0, endMs: null };
+    requireInput(alert && typeof alert.source === 'string' && /^(default|chime|bell|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/.test(alert.source), '알림음을 선택하세요.');
+    requireInput(safeInteger(alert.startMs, 0, 179999) && (alert.endMs === null || safeInteger(alert.endMs, alert.startMs + 1, 180000)), '알림음 재생 구간은 시작보다 종료가 뒤여야 하고 3분 이하여야 합니다.');
+    requireInput(alert.endMs !== null || alert.startMs < r.durationMs + r.resultHoldMs, '자동 재생 구간의 시작은 룰렛 전체 표시 시간보다 작아야 합니다.');
     requireInput(Array.isArray(r.prizes) && r.prizes.length > 0 && r.prizes.length <= 100, '결과 항목은 1~100개입니다.');
     const prizeIds = new Set();
     const prizes = r.prizes.map(p => {
@@ -50,9 +59,9 @@ export function validateConfig(value) {
       return { id: p.id, meso: p.meso, weight: p.weight };
     });
     requireInput(prizes.reduce((sum, p) => sum + p.weight, 0) === 1000, '룰렛 확률 합계가 정확히 100%여야 합니다.');
-    return { id: r.id, name: r.name.trim(), kind: r.kind, triggerKrw: r.triggerKrw, durationMs: r.durationMs, resultHoldMs: r.resultHoldMs, enabled: r.enabled, prizes };
+    return { id: r.id, name: r.name.trim(), kind: r.kind, triggerKrw: r.triggerKrw, durationMs: r.durationMs, resultHoldMs: r.resultHoldMs, enabled: r.enabled, comments: Object.fromEntries(['heading', 'donor', 'donation'].map(key => [key, comments[key]])), sound: { source: alert.source, startMs: alert.startMs, endMs: alert.endMs }, prizes };
   });
-  return { allowNegative: value.allowNegative, initialBalance: value.initialBalance, sound: { volume: sound.volume }, roulettes };
+  return { allowNegative: value.allowNegative, initialBalance: value.initialBalance, sound: { volume: sound.volume }, overlay: { scalePercent: overlay.scalePercent }, roulettes };
 }
 
 export function normalizeDonation(provider, body) {
@@ -120,6 +129,16 @@ export class Engine extends EventEmitter {
     requireInput(!this.data.active && this.data.queue.length === 0, '룰렛이 모두 끝난 후 잔액을 변경하세요.');
     requireInput(safeInteger(balance, this.data.config.allowNegative ? -MAX_TOTAL : 0, MAX_TOTAL), '메소 잔액 범위를 확인하세요.');
     this.data.balance = balance; this.change(); return this.snapshot();
+  }
+  adjustBalance(delta, note = '') {
+    requireInput(safeInteger(delta, -MAX_TOTAL, MAX_TOTAL) && delta !== 0, '증감 메소는 0이 아닌 정수로 입력하세요.');
+    requireInput(typeof note === 'string' && note.length <= 100, '메모는 100자 이하로 입력하세요.');
+    const balance = this.data.balance + delta;
+    requireInput(safeInteger(balance, this.data.config.allowNegative ? -MAX_TOTAL : 0, MAX_TOTAL), '변경 후 메소 잔액이 허용 범위를 벗어납니다.');
+    this.data.balance = balance;
+    this.data.history.unshift({ id: randomUUID(), kind: 'manual', nickname: note.trim() || '관리자', rouletteName: delta > 0 ? '수동 메소 추가' : '수동 메소 감소', meso: Math.abs(delta), delta, actualDelta: delta, balance, endedAt: this.now(), test: false });
+    this.data.history = this.data.history.slice(0, 500);
+    this.change(); return this.snapshot();
   }
   receive(provider, body, { test = false } = {}) {
     const donation = normalizeDonation(provider, body);

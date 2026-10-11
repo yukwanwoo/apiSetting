@@ -57,3 +57,57 @@ test('source URLs are saved without claiming a live receiver is authenticated', 
   assert.equal((await request('/api/sources', sources)).status, 200); const info = await (await request('/api/connection')).json(); assert.equal(info.sources.youtube, sources.youtube); assert.equal(info.providers[0].configured, false);
   assert.equal((await request('/api/sources', { youtube: 'https://example.com/watch?v=abcdefghijk' })).status, 400);
 });
+
+test('audio uploads validate WAV, require admin, persist and allow only authenticated media reads', async t => {
+  const { app, base, request } = await setup(t);
+  const bytes = Buffer.alloc(44 + 24000 * 2 * 5);
+  bytes.write('RIFF'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVEfmt ', 8); bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22); bytes.writeUInt32LE(24000, 24); bytes.writeUInt32LE(48000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34); bytes.write('data', 36); bytes.writeUInt32LE(bytes.length - 44, 40);
+  const upload = (body, auth = keys.admin) => fetch(`${base}/api/sounds/upload?name=${encodeURIComponent('테스트 음성.wav')}`, { method: 'POST', headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'audio/wav' }, body });
+  assert.equal((await upload(bytes, keys.overlay)).status, 401);
+  assert.equal((await upload(Buffer.from('not audio'))).status, 400);
+  const added = await (await upload(bytes)).json(); assert.equal(added.durationMs, 5000);
+  const { Sounds } = await import('../src/sounds.js'); const restored = new Sounds(app.engine.file.slice(0, -'/state.json'.length));
+  assert.equal(restored.has(added.id), true); assert.deepEqual(restored.read(added.id), bytes);
+  assert.equal((await fetch(base + added.url)).status, 401);
+  const media = await fetch(base + added.url + `?token=${keys.overlay}`); assert.equal(media.status, 200); assert.deepEqual(Buffer.from(await media.arrayBuffer()), bytes);
+  const ranged = await fetch(base + added.url + `?token=${keys.overlay}`, { headers: { Range: 'bytes=44-143' } });
+  assert.equal(ranged.status, 206); assert.equal(ranged.headers.get('content-range'), `bytes 44-143/${bytes.length}`); assert.deepEqual(Buffer.from(await ranged.arrayBuffer()), bytes.subarray(44, 144));
+  assert.equal((await fetch(base + added.url + `?token=${keys.overlay}`, { headers: { Range: 'bytes=99999999-' } })).status, 416);
+  assert.equal((await request('/sounds/../keys.json')).status, 404);
+  const state = await (await request('/api/state')).json(); state.config.roulettes[0].sound = { source: added.id, startMs: 1000, endMs: 3500 };
+  assert.equal((await request('/api/config', state.config)).status, 200);
+  assert.equal((await request('/api/sounds/delete', { id: added.id })).status, 400);
+  state.config.roulettes[0].sound.endMs = 5001; assert.equal((await request('/api/config', state.config)).status, 400);
+  state.config.roulettes[0].sound = { source: 'default', startMs: 0, endMs: null }; await request('/api/config', state.config);
+  assert.equal((await request('/api/sounds/delete', { id: added.id })).status, 200);
+  assert.equal((await fetch(base + added.url + `?token=${keys.overlay}`)).status, 404);
+});
+test('manual adjustment API is admin-only and publishes the latest change to OBS', async t => {
+  const { request, base } = await setup(t);
+  assert.equal((await request('/api/balance/adjust', { delta: 500 }, false)).status, 401);
+  const response = await request('/api/balance/adjust', { delta: -500, note: '테스트 조정' }); assert.equal(response.status, 200);
+  assert.equal((await response.json()).balance, 29_999_500);
+  const abort = new AbortController(); const sse = await fetch(`${base}/api/events?token=${keys.overlay}`, { signal: abort.signal });
+  const { value } = await sse.body.getReader().read(); const state = JSON.parse(new TextDecoder().decode(value).split('data: ')[1].split('\n')[0]);
+  assert.equal(state.latestChange.actualDelta, -500); assert.equal(state.latestChange.nickname, '테스트 조정'); abort.abort();
+});
+test('shutdown validates all settings before saving, requires admin and stops after successful response', async t => {
+  const { app, request } = await setup(t); let called = false;
+  // A separate app exposes the shutdown callback without exiting the test process.
+  const dir = mkdtempSync(join(tmpdir(), 'meso-shutdown-'));
+  const closing = createApp({ dataDir: dir, keys, env: {}, onShutdown: () => { called = true; } });
+  await new Promise(resolve => closing.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { closing.close(); closing.server.closeAllConnections(); rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${closing.server.address().port}`;
+  const config = closing.engine.snapshot().config; config.overlay.scalePercent = 65;
+  assert.equal((await request('/api/shutdown', { config }, false)).status, 401);
+  assert.equal((await request('/api/shutdown', { config, sources: { soop: 'https://bad.example/' } })).status, 400);
+  assert.equal(app.engine.data.config.overlay.scalePercent, 100);
+  closing.engine.receive('chzzk', { eventId: 'unfinished', nickname: '보존', amount: 1000, unit: 'KRW' });
+  const response = await fetch(base + '/api/shutdown', { method: 'POST', headers: { Authorization: `Bearer ${keys.admin}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ config, sources: {} }) });
+  assert.equal(response.status, 200); assert.equal((await response.json()).saved, true);
+  await new Promise(resolve => setTimeout(resolve, 30)); assert.equal(called, true); assert.equal(closing.server.listening, false);
+  const { Engine } = await import('../src/engine.js'); const restored = new Engine(join(dir, 'state.json')); t.after(() => restored.close());
+  assert.equal(restored.data.config.overlay.scalePercent, 65); assert.equal(restored.data.active.donation.nickname, '보존');
+});

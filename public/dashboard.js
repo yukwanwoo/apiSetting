@@ -1,3 +1,5 @@
+import { DEFAULT_COMMENTS, BUILTIN_SOUNDS, soundWindow } from './presentation.js';
+import { SoundPlayer, encodeUpload } from './sound-player.js';
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('ko-KR');
 const names = { chzzk: '치지직', soop: 'SOOP', youtube: 'YouTube', toonation: '투네이션' };
@@ -7,7 +9,7 @@ if (launchKey && /^[a-f0-9]{64}$/.test(launchKey)) {
   history.replaceState(null, '', location.pathname + location.search);
 }
 let token = sessionStorage.getItem('meso-admin') || '', state, draft, currentId, dirty = false, streamController;
-let noticeTimer, retryTimer, statusTimer, sourcesLoaded = false;
+let noticeTimer, retryTimer, statusTimer, sourcesLoaded = false, soundOptions = [...BUILTIN_SOUNDS], uploading = false, stopping = false;
 const newId = prefix => `${prefix}-${crypto.randomUUID()}`;
 function notice(message, bad = false) { clearTimeout(noticeTimer); $('notice').textContent = message; $('notice').className = `notice${bad ? ' bad' : ''}`; $('notice').hidden = false; noticeTimer = setTimeout(() => { $('notice').hidden = true; }, 8000); }
 async function api(path, value) {
@@ -20,13 +22,13 @@ function renderState(next) {
   state = next; $('balance').textContent = fmt(state.balance); $('queue-count').replaceChildren(document.createTextNode(`${state.queue.length} `)); const small = document.createElement('small'); small.textContent = '건'; $('queue-count').append(small);
   $('active-summary').textContent = state.active ? `${state.active.donation.nickname}님의 ${state.active.roulette.name}` : '다음 후원을 기다리는 중';
   $('spin-status').textContent = state.active ? state.active.settled ? 'RESULT' : 'SPINNING' : 'STANDBY'; $('spin-status').className = `pill${state.active ? ' good' : ''}`;
-  const last = state.history[0]; $('latest-result').textContent = last ? `${last.kind === 'defense' ? '−' : '+'}${fmt(last.meso)}` : '—'; $('latest-result').className = `latest ${last?.kind === 'defense' ? 'negative' : 'positive'}`;
+  const last = state.history[0]; $('latest-result').textContent = last ? `${last.actualDelta < 0 ? '−' : '+'}${fmt(last.meso)}` : '—'; $('latest-result').className = `latest ${last?.actualDelta < 0 ? 'negative' : 'positive'}`;
   $('latest-donor').textContent = last ? `${last.nickname} · ${last.test ? '테스트 · ' : ''}${last.rouletteName}` : '행운은 어느 쪽으로?';
   const donations = $('donations'); donations.replaceChildren();
   for (const d of state.donations) { const tr = document.createElement('tr'); tr.append(textCell(d.nickname, `${names[d.provider]}${d.test ? ' · 테스트' : ''} · ${new Date(d.receivedAt).toLocaleTimeString('ko-KR')}`), textCell(`${fmt(d.amountKrw)}원`, d.unit === 'STAR' ? `별풍선 ${fmt(d.amount)}개` : ''), textCell(d.matched ? d.rouletteName : '금액 불일치')); donations.append(tr); }
   if (!state.donations.length) empty(donations, '아직 도착한 후원이 없습니다.');
   const history = $('history'); history.replaceChildren();
-  for (const h of state.history) { const tr = document.createElement('tr'); const change = textCell(`${h.kind === 'defense' ? '−' : '+'}${fmt(h.meso)}`, `실제 ${h.actualDelta < 0 ? '−' : '+'}${fmt(Math.abs(h.actualDelta))} 메소`); change.className = h.kind === 'defense' ? 'negative' : 'positive'; tr.append(textCell(h.rouletteName, `${h.nickname}${h.test ? ' · 테스트' : ''}`), change, textCell(fmt(h.balance))); history.append(tr); }
+  for (const h of state.history) { const tr = document.createElement('tr'); const change = textCell(`${h.actualDelta < 0 ? '−' : '+'}${fmt(h.meso)}`, `실제 ${h.actualDelta < 0 ? '−' : '+'}${fmt(Math.abs(h.actualDelta))} 메소`); change.className = h.actualDelta < 0 ? 'negative' : 'positive'; tr.append(textCell(h.rouletteName, `${h.nickname}${h.test ? ' · 테스트' : ''}`), change, textCell(fmt(h.balance))); history.append(tr); }
   if (!state.history.length) empty(history, '첫 번째 룰렛을 기다리고 있습니다.');
   if (!draft || !dirty) { draft = structuredClone(state.config); if (!draft.roulettes.some(r => r.id === currentId)) currentId = draft.roulettes[0].id; renderEditor(); }
 }
@@ -35,6 +37,9 @@ function fillSelect() { $('roulette-select').replaceChildren(...draft.roulettes.
 function renderEditor() {
   const r = roulette(); fillSelect(); $('roulette-name').value = r.name; $('roulette-kind').value = r.kind; $('roulette-enabled').checked = r.enabled;
   $('roulette-unit').value = 'KRW'; $('roulette-amount').value = r.triggerKrw; $('roulette-duration').value = r.durationMs / 1000; $('roulette-hold').value = r.resultHoldMs / 1000;
+  $('overlay-scale').value = draft.overlay.scalePercent;
+  for (const key of ['heading', 'donor', 'donation']) $(`comment-${key}`).value = r.comments[key];
+  renderSoundEditor();
   $('sound-volume').value = draft.sound.volume; $('sound-volume-label').textContent = `${draft.sound.volume}%`;
   $('allow-negative').checked = draft.allowNegative; $('initial-balance').value = draft.initialBalance; renderPrizes(); ruleConversion(); $('save-config').textContent = dirty ? '변경사항 저장' : '설정 저장';
 }
@@ -97,13 +102,31 @@ async function stream() {
       while ((edge = buffer.indexOf('\n\n')) !== -1) { const block = buffer.slice(0, edge); buffer = buffer.slice(edge + 2); const data = block.split('\n').find(line => line.startsWith('data: ')); if (data) renderState(JSON.parse(data.slice(6))); }
     }
   } catch (error) { if (error.name === 'AbortError') return; }
+  if (stopping) return;
   $('server-status').textContent = '재연결 중…'; retryTimer = setTimeout(stream, 2500);
 }
 async function login() {
+  soundOptions = (await api('/api/sounds')).sounds;
   renderState(await api('/api/state')); sessionStorage.setItem('meso-admin', token); $('login').hidden = true; $('app').hidden = false; await connections(); if (new URLSearchParams(location.search).has('connected') || new URLSearchParams(location.search).has('youtube')) { tab('connections'); notice('계정 인증을 저장했습니다. 플랫폼의 실제 수신 상태를 확인하세요.'); history.replaceState(null, '', '/'); } void stream(); clearInterval(statusTimer); statusTimer = setInterval(() => { connections().catch(() => {}); }, 15_000);
 }
 $('login-form').addEventListener('submit', async event => { event.preventDefault(); token = $('admin-key').value.trim(); try { await login(); $('admin-key').value = ''; } catch (error) { $('login-error').textContent = error.message; } });
-$('logout').addEventListener('click', () => { token = ''; sessionStorage.removeItem('meso-admin'); streamController?.abort(); clearTimeout(retryTimer); clearInterval(statusTimer); location.reload(); });
+async function shutdown() {
+  if (uploading) return notice('음성 파일 업로드가 끝난 후 종료하세요.', true);
+  if (stopping || !confirm('현재 값들을 저장하고 종료하겠습니까?\n후원 수신과 OBS 표시도 종료됩니다.')) return;
+  const invalid = document.querySelector('#tab-settings input:invalid');
+  if (invalid) { tab('settings'); invalid.reportValidity(); return; }
+  stopping = true;
+  try {
+    await api('/api/shutdown', { config: draft, sources: Object.fromEntries(Object.keys(names).map(provider => [provider, $(`source-${provider}`).value])) });
+    dirty = false; streamController?.abort(); clearTimeout(retryTimer); clearInterval(statusTimer); soundPreview.stop();
+    token = ''; sessionStorage.removeItem('meso-admin');
+    $('server-status').textContent = '프로그램 종료됨';
+    notice('설정을 저장하고 프로그램을 종료했습니다. 다시 사용하려면 EXE를 실행하세요.');
+    document.querySelectorAll('#app button, #app input, #app select').forEach(el => { el.disabled = true; });
+  } catch (error) { stopping = false; notice(error.message, true); }
+}
+$('logout').addEventListener('click', shutdown);
+$('shutdown').addEventListener('click', shutdown);
 document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => tab(button.dataset.tab)));
 document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => tab(button.dataset.go)));
 $('test-provider').addEventListener('change', () => { $('test-unit').options[1].disabled = $('test-provider').value !== 'soop'; if ($('test-provider').value !== 'soop') $('test-unit').value = 'KRW'; testConversion(); });
@@ -116,18 +139,72 @@ $('roulette-kind').addEventListener('change', () => { roulette().kind = $('roule
 $('roulette-enabled').addEventListener('change', () => { roulette().enabled = $('roulette-enabled').checked; markDirty(); });
 $('roulette-amount').addEventListener('input', () => { ruleConversion(); markDirty(); });
 $('roulette-unit').addEventListener('change', () => { const amount = roulette().triggerKrw; $('roulette-amount').value = amount / ($('roulette-unit').value === 'STAR' ? 100 : 1); ruleConversion(); });
-$('roulette-duration').addEventListener('input', () => { roulette().durationMs = Math.round(Number($('roulette-duration').value) * 1000); markDirty(); });
-$('roulette-hold').addEventListener('input', () => { roulette().resultHoldMs = Math.round(Number($('roulette-hold').value) * 1000); markDirty(); });
-const soundPreview = new Audio('/alert.wav');
+$('roulette-duration').addEventListener('input', () => { roulette().durationMs = Math.round(Number($('roulette-duration').value) * 1000); markDirty(); renderSoundClip(); });
+$('roulette-hold').addEventListener('input', () => { roulette().resultHoldMs = Math.round(Number($('roulette-hold').value) * 1000); markDirty(); renderSoundClip(); });
+const soundPreview = new SoundPlayer();
+let previewObjectUrl;
+function renderSoundEditor() {
+  const r = roulette();
+  $('sound-source').replaceChildren(...soundOptions.map(s => { const option = document.createElement('option'); option.value = s.id; option.textContent = s.name; return option; }));
+  if (!soundOptions.some(s => s.id === r.sound.source)) { const missing = document.createElement('option'); missing.value = r.sound.source; missing.textContent = '업로드 파일 없음 · 다시 선택하세요'; $('sound-source').append(missing); }
+  $('sound-source').value = r.sound.source;
+  $('delete-sound').hidden = BUILTIN_SOUNDS.some(s => s.id === r.sound.source);
+  renderSoundClip();
+}
+function renderSoundClip() {
+  const r = roulette(), file = soundOptions.find(s => s.id === r.sound.source);
+  $('sound-auto-end').checked = r.sound.endMs === null;
+  $('sound-start').value = r.sound.startMs / 1000;
+  $('sound-end').disabled = r.sound.endMs === null;
+  const window = soundWindow(r.sound, r, file?.durationMs);
+  $('sound-end').value = (r.sound.endMs === null ? window.endMs : r.sound.endMs) / 1000;
+  $('sound-clip-info').textContent = `${file?.durationMs ? `파일 길이 ${(file.durationMs / 1000).toFixed(3)}초 · ` : ''}룰렛 표시 시간 ${((r.durationMs + r.resultHoldMs) / 1000).toFixed(3)}초. 자동 구간은 파일이 더 짧으면 파일 끝까지입니다.`;
+}
+$('overlay-scale').addEventListener('input', () => { draft.overlay.scalePercent = Number($('overlay-scale').value); markDirty(); });
+for (const key of ['heading', 'donor', 'donation']) $(`comment-${key}`).addEventListener('input', () => { roulette().comments[key] = $(`comment-${key}`).value; markDirty(); });
+$('reset-comments').addEventListener('click', () => { roulette().comments = { ...DEFAULT_COMMENTS }; markDirty(); renderEditor(); });
+$('sound-source').addEventListener('change', () => { soundPreview.stop(); roulette().sound = { source: $('sound-source').value, startMs: 0, endMs: null }; markDirty(); renderSoundEditor(); });
+$('sound-auto-end').addEventListener('change', () => { roulette().sound.endMs = $('sound-auto-end').checked ? null : Math.round(Number($('sound-end').value) * 1000); markDirty(); renderSoundClip(); });
+$('sound-start').addEventListener('input', () => { roulette().sound.startMs = Math.round(Number($('sound-start').value) * 1000); markDirty(); });
+$('sound-end').addEventListener('input', () => { roulette().sound.endMs = Math.round(Number($('sound-end').value) * 1000); markDirty(); });
+$('sound-upload').addEventListener('change', async () => {
+  const file = $('sound-upload').files[0]; if (!file) return;
+  const target = roulette(); markDirty(); uploading = true; $('sound-upload').disabled = true;
+  try {
+    const buffer = await encodeUpload(file);
+    const response = await fetch(`/api/sounds/upload?name=${encodeURIComponent(file.name.slice(0, 100))}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'audio/wav' }, body: buffer });
+    const uploaded = await response.json(); if (!response.ok) throw new Error(uploaded.error);
+    soundOptions = (await api('/api/sounds')).sounds;
+    target.sound = { source: uploaded.id, startMs: 0, endMs: null }; markDirty(); renderSoundEditor();
+    notice('음성 파일을 추가했습니다. 앞부분 자동 구간이 설정됐습니다. 설정 저장으로 적용하세요.');
+  } catch (error) { notice(error.message, true); }
+  finally { uploading = false; $('sound-upload').disabled = false; $('sound-upload').value = ''; }
+});
+$('delete-sound').addEventListener('click', async () => { try { await api('/api/sounds/delete', { id: roulette().sound.source }); soundOptions = (await api('/api/sounds')).sounds; roulette().sound = { source: 'default', startMs: 0, endMs: null }; markDirty(); renderSoundEditor(); notice('업로드 파일을 삭제했습니다.'); } catch (error) { notice(error.message, true); } });
 $('sound-volume').addEventListener('input', () => { draft.sound.volume = Number($('sound-volume').value); $('sound-volume-label').textContent = `${draft.sound.volume}%`; markDirty(); });
-$('test-sound').addEventListener('click', () => { soundPreview.volume = draft.sound.volume / 100; soundPreview.currentTime = 0; soundPreview.play().catch(() => notice('알림음을 재생할 수 없습니다. 브라우저 소리 설정을 확인하세요.', true)); });
+$('test-sound').addEventListener('click', async () => {
+  try {
+    const r = structuredClone(roulette()), source = soundOptions.find(s => s.id === r.sound.source);
+    if (!source) throw new Error('알림음을 선택하세요.');
+    soundPreview.stop(); if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = undefined; }
+    let url = source.url;
+    if (!BUILTIN_SOUNDS.some(s => s.id === source.id)) {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error('업로드 파일을 읽을 수 없습니다.');
+      previewObjectUrl = URL.createObjectURL(await response.blob()); url = previewObjectUrl;
+    }
+    await soundPreview.play(url, r.sound, r, draft.sound.volume, r.durationMs + r.resultHoldMs);
+  } catch (error) { notice(error.message, true); }
+});
+$('stop-sound').addEventListener('click', () => soundPreview.stop());
 $('initial-balance').addEventListener('input', () => { draft.initialBalance = Number($('initial-balance').value); markDirty(); });
 $('reset-balance').addEventListener('click', async () => { try { renderState(await api('/api/balance', { balance: state.config.initialBalance })); notice('저장된 시작 메소로 초기화했습니다.'); } catch (error) { notice(error.message, true); } });
 $('allow-negative').addEventListener('change', () => { draft.allowNegative = $('allow-negative').checked; markDirty(); });
 $('add-prize').addEventListener('click', () => { if (roulette().prizes.length >= 100) return notice('항목은 100개까지 가능합니다.', true); roulette().prizes.push({ id: newId('prize'), meso: 0, weight: 0 }); markDirty(); renderPrizes(); });
-$('add-roulette').addEventListener('click', () => { if (draft.roulettes.length >= 20) return notice('룰렛은 20개까지 가능합니다.', true); currentId = newId('roulette'); draft.roulettes.push({ id: currentId, name: '새 룰렛', kind: 'attack', enabled: false, triggerKrw: 3000, durationMs: 1000, resultHoldMs: 1500, prizes: [{ id: newId('prize'), meso: 0, weight: 1000 }] }); markDirty(); renderEditor(); });
+$('add-roulette').addEventListener('click', () => { if (draft.roulettes.length >= 20) return notice('룰렛은 20개까지 가능합니다.', true); currentId = newId('roulette'); draft.roulettes.push({ id: currentId, name: '새 룰렛', kind: 'attack', enabled: false, comments: { ...DEFAULT_COMMENTS }, sound: { source: 'default', startMs: 0, endMs: null }, triggerKrw: 3000, durationMs: 1000, resultHoldMs: 1500, prizes: [{ id: newId('prize'), meso: 0, weight: 1000 }] }); markDirty(); renderEditor(); });
 $('delete-roulette').addEventListener('click', () => { if (draft.roulettes.length === 1) return notice('룰렛은 최소 한 개 필요합니다.', true); draft.roulettes = draft.roulettes.filter(r => r.id !== currentId); currentId = draft.roulettes[0].id; markDirty(); renderEditor(); });
-$('save-config').addEventListener('click', async () => { const invalid = document.querySelector('#tab-settings input:invalid'); if (invalid) { invalid.reportValidity(); return; } const button = $('save-config'); button.disabled = true; try { const next = await api('/api/config', draft); dirty = false; renderState(next); notice('룰렛 설정을 저장했습니다.'); } catch (error) { notice(error.message, true); } finally { button.disabled = false; } });
+$('save-config').addEventListener('click', async () => { if (uploading) return notice('음성 파일 업로드가 끝난 후 저장하세요.', true); const invalid = document.querySelector('#tab-settings input:invalid'); if (invalid) { invalid.reportValidity(); return; } const button = $('save-config'); button.disabled = true; try { const next = await api('/api/config', draft); dirty = false; renderState(next); notice('룰렛 설정을 저장했습니다.'); } catch (error) { notice(error.message, true); } finally { button.disabled = false; } });
+$('adjust-form').addEventListener('submit', async event => { event.preventDefault(); const button = event.submitter; button.disabled = true; try { const amount = Number($('adjust-amount').value); renderState(await api('/api/balance/adjust', { delta: $('adjust-direction').value === 'subtract' ? -amount : amount, note: $('adjust-note').value })); notice('메소 증감을 반영했습니다.'); $('adjust-amount').value = ''; $('adjust-note').value = ''; } catch (error) { notice(error.message, true); } finally { button.disabled = false; } });
 $('balance-form').addEventListener('submit', async event => { event.preventDefault(); try { renderState(await api('/api/balance', { balance: Number($('balance-input').value) })); notice('메소 잔액을 변경했습니다.'); } catch (error) { notice(error.message, true); } });
 $('refresh-connections').addEventListener('click', () => { connections().catch(error => notice(error.message, true)); });
 document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => { const input = $(button.dataset.copy); try { await navigator.clipboard.writeText(input.value); notice('OBS 주소를 복사했습니다.'); } catch { input.select(); notice('주소를 선택했습니다. Ctrl+C 또는 Cmd+C로 복사하세요.'); } }));

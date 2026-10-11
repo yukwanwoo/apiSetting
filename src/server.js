@@ -2,6 +2,7 @@ import http from 'node:http';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isSea, getAsset } from 'node:sea';
 import { createHmac, randomBytes, timingSafeEqual, randomUUID } from 'node:crypto';
 import { Engine, InputError, PROVIDERS } from './engine.js';
 import { YouTubeConnector } from './youtube.js';
@@ -11,7 +12,7 @@ import { ChzzkConnector } from './chzzk.js';
 import { SoopConnector } from './soop.js';
 import { ToonationConnector } from './toonation.js';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = isSea() ? dirname(process.execPath) : resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 function sameSecret(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -129,7 +130,7 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
       const allowed = new Set(['/', '/index.html', '/overlay.html', '/meso.html', '/styles.css', '/dashboard.js', '/overlay.js']);
       if (!allowed.has(url.pathname)) return json(res, 404, { error: '경로를 찾지 못했습니다.' });
       const path = resolve(ROOT, 'public', url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
-      const file = readFileSync(path);
+      const file = isSea() ? Buffer.from(getAsset(`public/${url.pathname === '/' ? 'index.html' : url.pathname.slice(1)}`)) : readFileSync(path);
       res.writeHead(200, { 'Content-Type': MIME[extname(path)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : file);
     } catch (error) {
@@ -143,7 +144,7 @@ export function createApp({ dataDir = resolve(ROOT, 'data'), keys, env = process
   return { server, engine, get youtube() { return connectors.youtube; }, connectors, keys, close: () => { engine.close(); stopProviders(); for (const client of clients) client.res.end(); server.close(); } };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (!isSea() && process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 3000), host = process.env.HOST || '127.0.0.1';
   const app = createApp({ dataDir: process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : undefined });
   app.server.listen(port, host, () => {

@@ -1,6 +1,11 @@
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('ko-KR');
 const names = { chzzk: '치지직', soop: 'SOOP', youtube: 'YouTube', toonation: '투네이션' };
+const launchKey = new URLSearchParams(location.hash.slice(1)).get('admin');
+if (launchKey && /^[a-f0-9]{64}$/.test(launchKey)) {
+  sessionStorage.setItem('meso-admin', launchKey);
+  history.replaceState(null, '', location.pathname + location.search);
+}
 let token = sessionStorage.getItem('meso-admin') || '', state, draft, currentId, dirty = false, streamController;
 let noticeTimer, retryTimer, statusTimer, sourcesLoaded = false;
 const newId = prefix => `${prefix}-${crypto.randomUUID()}`;

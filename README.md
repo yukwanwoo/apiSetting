@@ -2,7 +2,15 @@
 
 Node.js 기반 후원 메소 룰렛과 OBS 브라우저 오버레이입니다. 기본 시작 메소는 **30,000,000**, 음수 잔액은 기본 허용입니다.
 
-## 실행
+## Windows 11 64비트 배포본
+
+[0.0.1 Release](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.0.1)에서 ZIP을 내려받아 압축을 풀고 `MesoLiveRoulette-0.0.1-win-x64.exe`를 실행하세요. Node.js 설치나 관리자 권한 없이 브라우저 관리 화면이 자동으로 열립니다. 방송 중에는 실행 창을 열어 두세요.
+
+EXE의 설정·잔액·인증 정보는 `%LOCALAPPDATA%\MesoLiveRoulette\data`에 저장되며 EXE 업데이트 시 유지됩니다. 배포본은 코드 서명되지 않아 SmartScreen 경고가 나올 수 있습니다. 상세 사용법은 [Windows 안내](docs/WINDOWS.txt)를 참고하세요.
+
+Windows x64 / Node.js 24.19.0에서 `npm ci`, `npm run build:windows`, `npm run smoke:exe`로 빌드와 실제 EXE 검증을 실행합니다. Node.js SEA에 서버와 화면 파일을 내장합니다. GitHub Actions는 Windows에서 테스트·EXE 검증을 통과한 버전 태그를 Release로 게시합니다.
+
+## 소스 코드 실행
 
 Node.js 24 이상이 필요합니다. `soop-chat@0.6.0`과 `ws@8.21.3`을 고정 버전으로 사용하며 `npm ci`로 설치합니다.
 

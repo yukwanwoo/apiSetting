@@ -11,6 +11,13 @@ def smoke(base, data_dir, artifacts):
   page.on('pageerror', lambda e: errors.append(str(e)))
   page.goto(base)
   key=json.loads(Path(data_dir, 'keys.json').read_text())['admin']
+  launch_context=browser.new_context()
+  launch_page=launch_context.new_page()
+  launch_page.goto(base+'/#admin='+key)
+  launch_page.locator('#app').wait_for(state='visible')
+  assert launch_page.evaluate('location.hash')==''
+  assert launch_page.evaluate("sessionStorage.getItem('meso-admin')")==key
+  launch_context.close()
   page.locator('#admin-key').fill(key)
   page.locator('#login-form button').click()
   page.locator('#app').wait_for(state='visible')

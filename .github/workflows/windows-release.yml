@@ -45,4 +45,6 @@ jobs:
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw "Tag/package version mismatch" }
-          gh release create $env:GITHUB_REF_NAME "dist/MesoLiveRoulette-$version-win-x64.zip" --verify-tag --title "$version — Windows 11 x64" --notes-file dist/release-notes.md
+          $releaseArgs = @('release', 'create', $env:GITHUB_REF_NAME, "dist/MesoLiveRoulette-$version-win-x64.zip", '--verify-tag', '--title', "$version — Windows 11 x64", '--notes-file', 'dist/release-notes.md')
+          if ($version.Contains('-')) { $releaseArgs += '--prerelease' }
+          gh @releaseArgs

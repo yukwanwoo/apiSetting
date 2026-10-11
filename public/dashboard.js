@@ -74,7 +74,15 @@ async function connections() {
     const card = document.createElement('div'); card.className = 'provider-card'; const icon = document.createElement('div'); icon.className = 'provider-icon'; icon.textContent = names[provider.provider].slice(0, 1);
     const title = document.createElement('h3'); title.textContent = names[provider.provider]; const badge = document.createElement('span'); badge.className = `pill ${['connected', 'listening'].includes(provider.state) ? 'good' : provider.state === 'error' ? 'bad' : ''}`;
     badge.textContent = ({ connected: '후원 수신 확인', listening: '수신 대기', connecting: '연결 중', reconnecting: '재연결 중', auth_required: '권한 필요', not_configured: '연결 필요', error: '연결 오류', offline: '방송 종료' })[provider.state] || '대기';
-    const detail = document.createElement('p'); detail.textContent = provider.detail + (provider.skippedCurrency ? ` · 외화 후원 ${provider.skippedCurrency}건 제외` : ''); card.append(icon, title, badge, detail); if (provider.configured) { const retry = document.createElement('button'); retry.className = 'text-button'; retry.textContent = '다시 연결'; retry.addEventListener('click', async () => { try { await api('/api/provider/reconnect', { provider: provider.provider }); await connections(); } catch (error) { notice(error.message, true); } }); card.append(retry); } return card;
+    const detail = document.createElement('p'); detail.textContent = provider.detail + (provider.skippedCurrency ? ` · 외화 후원 ${provider.skippedCurrency}건 제외` : ''); card.append(icon, title, badge, detail); if (provider.diagnostics) {
+      const d = provider.diagnostics, stats = document.createElement('p'); stats.className = 'helper';
+      stats.textContent = `수신 진단 · 패킷 ${d.packets} · 채팅 ${d.chatMessages} · 별풍선 패킷 ${d.donationPackets} · 처리 ${provider.received} · 해석 오류 ${d.protocolErrors} · 호환 처리 ${d.fallbackDonations}`;
+      if (d.lastProtocolError) stats.textContent += ` · 최근 오류 코드 ${d.lastProtocolError.opcode || '프레임'}, 필드 ${d.lastProtocolError.fieldCount ?? '알 수 없음'}`;
+      card.append(stats);
+      const copy = document.createElement('button'); copy.className = 'text-button'; copy.textContent = 'SOOP 진단 복사';
+      copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(JSON.stringify({ provider: 'soop', state: provider.state, received: provider.received, diagnostics: d }, null, 2)); notice('SOOP 진단을 복사했습니다. 키·채팅 내용·후원자 닉네임은 포함하지 않습니다.'); } catch { notice('진단을 복사할 수 없습니다. 화면의 진단 숫자를 알려주세요.', true); } }); card.append(copy);
+    }
+    if (provider.configured) { const retry = document.createElement('button'); retry.className = 'text-button'; retry.textContent = '다시 연결'; retry.addEventListener('click', async () => { try { await api('/api/provider/reconnect', { provider: provider.provider }); await connections(); } catch (error) { notice(error.message, true); } }); card.append(retry); } return card;
   }));
 }
 async function stream() {

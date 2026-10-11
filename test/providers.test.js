@@ -9,7 +9,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { Engine, choosePrize, InputError } from '../src/engine.js';
 import { Connections } from '../src/connections.js';
 import { ChzzkConnector, parseChzzkDonation, chzzkSocketUrl } from '../src/chzzk.js';
-import { SoopConnector, soopStreamerId, parseSoopDonation } from '../src/soop.js';
+import { SoopConnector, soopStreamerId, parseSoopDonation, parseSoopFallback } from '../src/soop.js';
 import { ToonationConnector, parseToonationDonation, validateToonationWidget, toonationPayload } from '../src/toonation.js';
 import { createApp } from '../src/server.js';
 import { ChzzkPublicConnector, parsePublicChzzkFrame } from '../src/chzzk-public.js';
@@ -147,4 +147,39 @@ test('CHZZK URL mode blocks restricted broadcasts and ignores unpaid mission sta
   const { connections, engine } = fixture(t); connections.setSources({ chzzk: `https://chzzk.naver.com/live/${channelId}` }); connections.setChzzkPublicEnabled(true);
   const connector = new ChzzkPublicConnector(engine, connections, { fetchImpl: async () => response({ code: 200, content: { adult: true } }), socketFactory: () => { throw new Error('must not connect'); } }); t.after(() => connector.stop()); connector.start(); await until(() => connector.status.state === 'auth_required'); assert.equal(connector.socket, null);
   assert.equal(parsePublicChzzkFrame({ cmd: 93102, bdy: [{ msgTypeCode: 10, extras: { donationType: 'MISSION', payAmount: 1000, status: 'FAILED' } }] }, () => 'id').length, 0);
+});
+
+
+test('SOOP fallback requires matching recipient, nickname and strictly positive integer balloons', () => {
+ const raw={opcode:'0018',fields:['siiyeon','sender','후원자','5']};
+ assert.equal(parseSoopFallback(raw,'id','siiyeon').amount,5);
+ assert.throws(()=>parseSoopFallback(raw,'id','other'),InputError);
+ for(const count of ['-5','5.1','abc','0','1000001']) assert.throws(()=>parseSoopFallback({...raw,fields:['siiyeon','sender','후원자',count]},'id','siiyeon'),InputError);
+ assert.throws(()=>parseSoopFallback({...raw,fields:['siiyeon','sender']},'id','siiyeon'),InputError);
+ assert.equal(parseSoopFallback({opcode:'0005',fields:raw.fields},'id','siiyeon'),null);
+});
+
+test('SOOP real binary packets recover short metadata, record five balloons, settle matching donations once and expose safe diagnostics', async t => {
+ const {server,url}=await socketServer(t),{engine,connections}=fixture(t);
+ connections.setSources({soop:'https://play.sooplive.com/siiyeon/297759991'});connections.setSoopEnabled(true);
+ const packet=(opcode,fields)=>{const payload=Buffer.from('\f'+fields.join('\f')+'\f');return Buffer.concat([Buffer.from(`\x1b\t${opcode}${String(payload.length).padStart(6,'0')}00`),payload]);};
+ let peer;
+ server.on('connection',socket=>{peer=socket;socket.on('message',raw=>{const opcode=raw.toString().slice(2,6);if(opcode==='0001')socket.send(packet('0001',['guest','16']));if(opcode==='0002')socket.send(packet('0002',['1559','siiyeon','','5','0','','16']));});});
+ const connector=new SoopConnector(engine,connections,{chatFactory:options=>new SoopChatCore({...options,resolveChannel:async()=>({broadcastNo:'297759991',chatNo:'1559',chatDomain:'chat.sooplive.com',chatPort:9000}),createWebSocket:()=>new WebSocket(url)})});t.after(()=>connector.stop());connector.start();
+ await until(()=>connector.status.state==='listening');
+ peer.send(packet('0018',['siiyeon','sender','private-donor-name','5']));
+ await until(()=>engine.data.donations.length===1);
+ assert.equal(engine.data.donations[0].amountKrw,500);assert.equal(engine.data.donations[0].matched,false);assert.equal(engine.data.active,null);
+ assert.equal(connector.status.diagnostics.fallbackDonations,1);
+ peer.send(packet('0018',['siiyeon','sender','private-donor-name','10','1','','1','0','','ko','0']));
+ peer.send(packet('0033',['relay','siiyeon','','sender','private-donor-name','11']));
+ peer.send(packet('0105',['1559','siiyeon','sender','private-donor-name','10']));
+ await until(()=>engine.data.history.length===3);
+ assert.equal(engine.data.donations.length,4);assert.equal(engine.data.balance,40_000_000);
+ assert.equal(connector.status.received,4);assert.equal(connector.status.diagnostics.donationPackets,4);assert.equal(connector.status.diagnostics.fallbackDonations,3);
+ peer.send(packet('0018',['other-channel','sender','private-donor-name','5']));
+ await until(()=>connector.status.state==='error');assert.equal(engine.data.donations.length,4);
+ const diagnostic=JSON.stringify(connector.status.diagnostics);assert.ok(!diagnostic.includes('private-donor-name'));assert.ok(!diagnostic.includes('sender'));assert.ok(!diagnostic.includes('other-channel'));
+ assert.equal(connector.status.diagnostics.lastProtocolError.opcode,'0018');
+ const packets=connector.status.diagnostics.packets;connector.stop();peer.send(packet('0018',['siiyeon','sender','private-donor-name','5']));await delay(20);assert.equal(connector.status.diagnostics.packets,packets);
 });

@@ -73,7 +73,7 @@ function probability() { const total = roulette().prizes.reduce((sum, p) => sum 
 function updateSaveLabels() { for (const id of ['save-config', 'save-studio-config']) $(id).textContent = dirty ? '변경사항 저장' : '설정 저장'; }
 function markDirty() { dirty = true; updateSaveLabels(); updatePreview(); }
 function ruleConversion() { const amount = Number($('roulette-amount').value), krw = amount * ($('roulette-unit').value === 'STAR' ? 100 : 1); roulette().triggerKrw = krw; $('rule-conversion').textContent = `${fmt(krw)}원 = 별풍선 ${fmt(krw / 100)}개 · 정확히 이 금액만 1회 실행`; }
-function tab(name) { document.querySelectorAll('.tab-section').forEach(el => { el.hidden = el.id !== `tab-${name}`; }); document.querySelectorAll('[data-tab]').forEach(el => el.classList.toggle('active', el.dataset.tab === name)); const titles = { studio: ['라이브 스튜디오', '후원의 순간을 메소로 연결하세요.'], settings: ['룰렛 설정', '확률부터 후원 조건까지, 방송에 맞게 설계하세요.'], connections: ['연결 & OBS', '후원을 연결하고, 방송 화면에 행운을 띄우세요.'] }; $('page-title').textContent = titles[name][0]; $('page-subtitle').textContent = titles[name][1]; }
+function tab(name) { document.querySelectorAll('.tab-section').forEach(el => { el.hidden = el.id !== `tab-${name}`; }); document.querySelectorAll('[data-tab]').forEach(el => el.classList.toggle('active', el.dataset.tab === name)); const titles = { studio: ['라이브 스튜디오', '후원의 순간을 메소로 연결하세요.'], overlays: ['오버레이 설정', 'OBS 주소와 룰렛 표시를 설정하고 테스트하세요.'], settings: ['룰렛 설정', '확률부터 후원 조건까지, 방송에 맞게 설계하세요.'], connections: ['방송연결', '방송 URL과 계정을 연결해 후원을 수신하세요.'] }; $('page-title').textContent = titles[name][0]; $('page-subtitle').textContent = titles[name][1]; }
 async function connections() {
   const info = await api('/api/connection');
   if (!sourcesLoaded) { for (const [provider, source] of Object.entries(info.sources)) $(`source-${provider}`).value = source; sourcesLoaded = true; }
@@ -131,7 +131,7 @@ async function shutdown() {
   if (uploading) return notice('음성 파일 업로드가 끝난 후 종료하세요.', true);
   if (stopping || !confirm('현재 값들을 저장하고 종료하겠습니까?\n후원 수신과 OBS 표시도 종료됩니다.')) return;
   const invalid = document.querySelector('#tab-settings input:invalid, .preview-controls input:invalid, .studio-balance-card input:invalid');
-  if (invalid) { tab(invalid.closest('#tab-settings') ? 'settings' : 'studio'); invalid.reportValidity(); return; }
+  if (invalid) { tab(invalid.closest('.tab-section').id.slice(4)); invalid.reportValidity(); return; }
   stopping = true;
   try {
     await api('/api/shutdown', { config: draft, sources: Object.fromEntries(Object.keys(names).map(provider => [provider, $(`source-${provider}`).value])) });
@@ -223,7 +223,7 @@ $('delete-roulette').addEventListener('click', () => { if (draft.roulettes.lengt
 async function saveConfig(event) {
   if (uploading) return notice('음성 파일 업로드가 끝난 후 저장하세요.', true);
   const invalid = document.querySelector('#tab-settings input:invalid, #preview input:invalid, .preview-controls input:invalid, .studio-balance-card input:invalid');
-  if (invalid) { tab(invalid.closest('#tab-settings') ? 'settings' : 'studio'); invalid.reportValidity(); return; }
+  if (invalid) { tab(invalid.closest('.tab-section').id.slice(4)); invalid.reportValidity(); return; }
   const button = event.currentTarget; button.disabled = true;
   try { const next = await api('/api/config', draft); dirty = false; renderState(next); notice('룰렛 설정을 저장했습니다.'); }
   catch (error) { notice(error.message, true); }

@@ -16,8 +16,7 @@ function fail(error) {
   }
 }
 try {
-  const { dataDir, migrated } = preparePortableData(isSea() ? process.execPath : resolve(dirname(fileURLToPath(import.meta.url)), '../MesoLiveRoulette.exe'));
-  if (migrated) console.log('이전 AppData 데이터와 키를 EXE 옆 data 폴더에 복사했습니다. 원본은 보존됩니다.');
+  const { dataDir } = preparePortableData(isSea() ? process.execPath : resolve(dirname(fileURLToPath(import.meta.url)), '../MesoLiveRoulette.exe'));
   app = createApp({ dataDir });
   app.server.once('error', fail);
   app.server.listen(3000, '127.0.0.1', () => {

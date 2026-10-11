@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, existsSync, rmSync, cpSync, renameSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync, cpSync, renameSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -12,6 +12,11 @@ let appDir = join(temp, '메소 portable folder'), exe = join(appDir, basename(b
 cpSync(dirname(builtExe), appDir, { recursive: true });
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(CHZZK_|YOUTUBE_|DATA_DIR$|ADMIN_TOKEN$|OVERLAY_TOKEN$|WEBHOOK_SECRET$)/.test(name)));
 env.LOCALAPPDATA = join(temp, 'isolated-appdata');
+const legacyDir = join(env.LOCALAPPDATA, 'MesoLiveRoulette', 'data');
+mkdirSync(legacyDir, { recursive: true });
+const legacyFiles = { 'state.json': 'invalid legacy state', 'keys.json': 'invalid legacy keys', 'connections.json': 'invalid legacy connections' };
+for (const [file, contents] of Object.entries(legacyFiles)) writeFileSync(join(legacyDir, file), contents);
+env.DATA_DIR = legacyDir;
 let child, output = '';
 async function start() {
   child = spawn(exe, ['--no-browser'], { cwd: tmpdir(), env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -64,6 +69,6 @@ try {
   assert.equal((await request('/api/state')).balance, 31_000_000, 'persistent balance');
   assert.equal(readFileSync(join(dataDir, 'keys.json'), 'utf8'), keysBefore, 'persistent keys');
   assert.equal((await request('/api/state')).config.sound.volume, 35);
-  assert.equal(existsSync(env.LOCALAPPDATA), false, 'AppData must not be used for new installations');
-  console.log('EXE smoke passed: portable Unicode folder, embedded pages/audio, roulette settlement, folder move and settings/key persistence.');
+  for (const [file, contents] of Object.entries(legacyFiles)) assert.equal(readFileSync(join(legacyDir, file), 'utf8'), contents, 'legacy AppData must remain untouched');
+  console.log('EXE smoke passed: AppData and DATA_DIR ignored, portable Unicode folder, embedded pages/audio, roulette settlement, folder move and settings/key persistence.');
 } finally { await stop(); rmSync(temp, { recursive: true, force: true }); }

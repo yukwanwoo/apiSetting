@@ -4,11 +4,11 @@ Node.js 기반 후원 메소 룰렛과 OBS 브라우저 오버레이입니다. �
 
 ## Windows 11 64비트 배포본
 
-[0.0.3-beta.2 베타](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.0.3-beta.2): SOOP 공개 채팅 입장 티켓 전달, 현재 방송의 채팅 접속 정보 조회, 연결된 방송·채팅방·서버와 재연결 진단을 추가했습니다. beta.1의 필수 필드 호환 처리도 유지합니다. 실제 SOOP 후원 누락 문제의 해결 여부는 방송에서 추가 확인이 필요합니다. 베타도 ZIP만 제공하며 기존 `data/`를 옮겨 사용하세요.
+[0.0.3-beta.3 베타](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.0.3-beta.3): Windows EXE는 AppData와 DATA_DIR 환경 변수를 무시하고 EXE 옆 `data/`만 사용합니다. 자동 이전도 제거했습니다. beta.2의 SOOP 입장 티켓 전달과 진단을 유지하며, 사용자 진단에서 별풍선 3건 수신과 해석 오류 0건이 확인됐습니다.
 
 [0.0.2 Release](https://github.com/yukwanwoo/apiSetting/releases/tag/v0.0.2)에서 ZIP을 내려받아 압축을 풀고 `MesoLiveRoulette-0.0.2-win-x64.exe`를 실행하세요. Node.js 설치나 관리자 권한 없이 브라우저 관리 화면이 자동으로 열립니다. 방송 중에는 실행 창을 열어 두세요.
 
-ZIP에는 EXE와 `data/`를 포함한 하나의 폴더가 들어 있습니다. 설정·잔액·인증 정보는 **EXE 옆 `data/`**에 저장됩니다. 새 버전으로 업데이트할 때 기존 `data/`를 새 EXE 옆으로 옮기거나 EXE만 교체하세요. 폴더를 통째로 이동해도 설정은 유지됩니다. 새 `data/`에 실제 데이터가 없으면 기존 0.0.1의 AppData 데이터를 한 번 복사하며 원본은 보존합니다. 배포본은 코드 서명되지 않아 SmartScreen 경고가 나올 수 있습니다. 상세 사용법은 [Windows 안내](docs/WINDOWS.txt)를 참고하세요.
+ZIP에는 EXE와 `data/`를 포함한 하나의 폴더가 들어 있습니다. 설정·잔액·인증 정보는 **EXE 옆 `data/`**에 저장됩니다. 새 버전으로 업데이트할 때 기존 `data/`를 새 EXE 옆으로 옮기거나 EXE만 교체하세요. 폴더를 통째로 이동해도 설정은 유지됩니다. beta.3부터 AppData는 읽거나 자동 복사하지 않으며 EXE 실행에서는 DATA_DIR 환경 변수도 무시합니다. 이미 EXE 옆에 저장된 데이터는 유지됩니다. 배포본은 코드 서명되지 않아 SmartScreen 경고가 나올 수 있습니다. 상세 사용법은 [Windows 안내](docs/WINDOWS.txt)를 참고하세요.
 
 Windows x64 / Node.js 24.19.0에서 `npm ci`, `npm run build:windows`, `npm run smoke:exe`로 빌드와 실제 EXE 검증을 실행합니다. Node.js SEA에 서버와 화면 파일을 내장합니다. GitHub Actions는 Windows에서 테스트·EXE 검증을 통과한 버전 태그를 Release로 게시합니다.
 

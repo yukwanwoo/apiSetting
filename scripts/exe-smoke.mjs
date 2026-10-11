@@ -33,7 +33,7 @@ async function start() {
   throw new Error(`EXE startup timed out: ${output}`);
 }
 async function stop() {
-  if (!child || child.exitCode !== null) return;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise(r => child.once('exit', r));
   child.kill(); await exited;
 }
@@ -71,4 +71,4 @@ try {
   assert.equal((await request('/api/state')).config.sound.volume, 35);
   for (const [file, contents] of Object.entries(legacyFiles)) assert.equal(readFileSync(join(legacyDir, file), 'utf8'), contents, 'legacy AppData must remain untouched');
   console.log('EXE smoke passed: AppData and DATA_DIR ignored, portable Unicode folder, embedded pages/audio, roulette settlement, folder move and settings/key persistence.');
-} finally { await stop(); rmSync(temp, { recursive: true, force: true }); }
+} catch (error) { console.error(output); throw error; } finally { await stop(); rmSync(temp, { recursive: true, force: true }); }

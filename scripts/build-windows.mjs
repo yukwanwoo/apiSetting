@@ -26,9 +26,8 @@ const exe = resolve(`dist/MesoLiveRoulette-${version}-win-x64.exe`);
 copyFileSync(process.execPath, exe);
 await inject(exe, 'NODE_SEA_BLOB', readFileSync('dist/sea.blob'), { sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2' });
 copyFileSync('docs/WINDOWS.txt', 'dist/사용설명서.txt');
-const nodeLicense = await fetch('https://nodejs.org/download/release/v24.19.0/LICENSE');
-if (!nodeLicense.ok) throw new Error('Node.js 라이선스 다운로드 실패');
-writeFileSync('dist/THIRD-PARTY-NOTICES.txt', ['Node.js 24.19.0', await nodeLicense.text(), '\nsoop-chat 0.6.0', readFileSync('node_modules/soop-chat/LICENSE', 'utf8'), '\nws 8.21.3', readFileSync('node_modules/ws/LICENSE', 'utf8')].join('\n'));
+// Upstream v24.19.0 license is vendored; packaging needs no extra downloads.
+writeFileSync('dist/THIRD-PARTY-NOTICES.txt', ['Node.js 24.19.0', readFileSync('docs/NODE-LICENSE.txt', 'utf8'), '\nsoop-chat 0.6.0', readFileSync('node_modules/soop-chat/LICENSE', 'utf8'), '\nws 8.21.3', readFileSync('node_modules/ws/LICENSE', 'utf8')].join('\n'));
 const sha = createHash('sha256').update(readFileSync(exe)).digest('hex');
 writeFileSync('dist/SHA256SUMS.txt', `${sha}  MesoLiveRoulette-${version}-win-x64.exe\n`);
 console.log(`Built ${exe}`);

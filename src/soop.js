@@ -1,4 +1,4 @@
-import { SoopChat } from 'soop-chat';
+import { createSoopPublicChat } from './soop-transport.js';
 import { Receiver } from './realtime.js';
 import { InputError } from './engine.js';
 
@@ -34,10 +34,15 @@ export function parseSoopFallback(raw, eventId, expectedStreamer) {
   return { eventId, nickname: name, amount, unit: 'STAR' };
 }
 export class SoopConnector extends Receiver {
-  constructor(engine, connections, { chatFactory = options => new SoopChat(options) } = {}) {
+  constructor(engine, connections, { chatFactory, fetchImpl, socketFactory } = {}) {
     super(engine, 'soop'); this.connections = connections; this.chatFactory = chatFactory; this.chat = null;
     this.status.detail = 'SOOP 방송 URL 저장 후 연결하세요.';
     this.status.diagnostics = { packets: 0, chatMessages: 0, donationPackets: 0, protocolErrors: 0, fallbackDonations: 0, lastPacketAt: null, lastProtocolError: null, opcodes: {} };
+    Object.assign(this.status.diagnostics, { reconnects: 0, connections: 0, connectedAt: null, channel: null, loginTicketSent: false, joinTicketSent: false });
+    this.chatFactory ||= options => createSoopPublicChat(options, { fetchImpl, socketFactory,
+      onChannel: channel => { if (this.running) { this.status.diagnostics.channel = channel; this.status.diagnostics.loginTicketSent = false; this.status.diagnostics.joinTicketSent = false; } },
+      onTicketSent: sent => { if (this.running) Object.assign(this.status.diagnostics, sent); }
+    });
   }
   configured() { return Boolean(this.connections.data.soop?.enabled && this.connections.data.sources.soop); }
   start() { if (!this.configured() || this.running) return; this.running = true; void this.connect(); }
@@ -70,8 +75,8 @@ export class SoopConnector extends Receiver {
       });
       chat.on('stateChange', event => {
         if (!this.running || this.chat !== chat) return;
-        if (event.current === 'connected') { this.status.state = 'listening'; this.status.detail = 'SOOP 공개 채팅 연결 · 별풍선 후원을 기다리는 중'; }
-        else if (event.current === 'reconnecting') { this.status.state = 'reconnecting'; this.status.detail = 'SOOP 방송 재연결 중'; }
+        if (event.current === 'connected') { this.status.diagnostics.connections++; this.status.diagnostics.connectedAt = Date.now(); this.status.state = 'listening'; this.status.detail = 'SOOP 공개 채팅 연결 · 별풍선 후원을 기다리는 중'; }
+        else if (event.current === 'reconnecting') { this.status.diagnostics.reconnects++; this.status.state = 'reconnecting'; this.status.detail = 'SOOP 방송 재연결 중'; }
       });
       chat.on('event', event => { if (!current()) return; if (event.type === 'chatMessage') this.status.diagnostics.chatMessages++; try { const donation = parseSoopDonation(event, this.deliveryId(), streamerId); if (donation) this.accept(donation); } catch { this.status.state = 'error'; this.status.detail = 'SOOP 후원 이벤트 형식을 확인하세요.'; } });
       chat.on('error', () => { if (this.running && this.chat === chat) { this.status.state = 'error'; this.status.detail = 'SOOP 연결 오류. 공개 방송 여부·네트워크·프로토콜 변경을 확인하세요.'; } });
@@ -81,8 +86,11 @@ export class SoopConnector extends Receiver {
         else { this.status.state = 'offline'; this.status.detail = 'SOOP 방송 종료 · 방송 시작 여부를 다시 확인합니다.'; this.retry(() => this.reconnect()); }
       });
       await chat.connect();
-    } catch { if (this.running && this.status.state !== 'auth_required') this.retry(() => this.reconnect(), 'SOOP 방송이 없거나 연결에 실패했습니다. 10초 후 다시 확인합니다.'); }
+    } catch (error) {
+      if (this.running && error.code === 'RESTRICTED_ROOM') { this.status.state = 'auth_required'; this.status.detail = '제한 방송은 공개 URL 연결로 지원하지 않습니다.'; }
+      else if (this.running && this.status.state !== 'auth_required') this.retry(() => this.reconnect(), 'SOOP 방송이 없거나 연결에 실패했습니다. 10초 후 다시 확인합니다.');
+    }
   }
-  async reconnect() { const chat = this.chat; this.chat = null; if (chat) await chat.disconnect(); if (this.running) await this.connect(); }
+  async reconnect() { const chat = this.chat; this.chat = null; if (chat) await chat.disconnect(); if (this.running) { this.status.diagnostics.reconnects++; await this.connect(); } }
   stop() { super.stop(); const chat = this.chat; this.chat = null; if (chat) void chat.disconnect().catch(() => {}); }
 }

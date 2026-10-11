@@ -77,10 +77,12 @@ async function connections() {
     const detail = document.createElement('p'); detail.textContent = provider.detail + (provider.skippedCurrency ? ` · 외화 후원 ${provider.skippedCurrency}건 제외` : ''); card.append(icon, title, badge, detail); if (provider.diagnostics) {
       const d = provider.diagnostics, stats = document.createElement('p'); stats.className = 'helper';
       stats.textContent = `수신 진단 · 패킷 ${d.packets} · 채팅 ${d.chatMessages} · 별풍선 패킷 ${d.donationPackets} · 처리 ${provider.received} · 해석 오류 ${d.protocolErrors} · 호환 처리 ${d.fallbackDonations}`;
+      if (d.channel) stats.textContent += ` · 방송 ${d.channel.broadcastNo} / 채팅방 ${d.channel.chatNo} · 서버 ${d.channel.chatDomain}:${d.channel.chatPort + 1} · 입장 티켓 ${d.joinTicketSent ? '전달됨' : '없음'} · 재연결 ${d.reconnects}회`;
+      if (d.lastPacketAt) stats.textContent += ` · 최근 수신 ${new Date(d.lastPacketAt).toLocaleTimeString('ko-KR')}`;
       if (d.lastProtocolError) stats.textContent += ` · 최근 오류 코드 ${d.lastProtocolError.opcode || '프레임'}, 필드 ${d.lastProtocolError.fieldCount ?? '알 수 없음'}`;
       card.append(stats);
       const copy = document.createElement('button'); copy.className = 'text-button'; copy.textContent = 'SOOP 진단 복사';
-      copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(JSON.stringify({ provider: 'soop', state: provider.state, received: provider.received, diagnostics: d }, null, 2)); notice('SOOP 진단을 복사했습니다. 키·채팅 내용·후원자 닉네임은 포함하지 않습니다.'); } catch { notice('진단을 복사할 수 없습니다. 화면의 진단 숫자를 알려주세요.', true); } }); card.append(copy);
+      copy.addEventListener('click', async () => { try { const fresh = (await api('/api/connection')).providers.find(p => p.provider === 'soop'); await navigator.clipboard.writeText(JSON.stringify({ provider: 'soop', copiedAt: Date.now(), state: fresh.state, received: fresh.received, diagnostics: fresh.diagnostics }, null, 2)); notice('SOOP 진단을 복사했습니다. 키·채팅 내용·후원자 닉네임은 포함하지 않습니다.'); } catch { notice('진단을 복사할 수 없습니다. 화면의 진단 숫자를 알려주세요.', true); } }); card.append(copy);
     }
     if (provider.configured) { const retry = document.createElement('button'); retry.className = 'text-button'; retry.textContent = '다시 연결'; retry.addEventListener('click', async () => { try { await api('/api/provider/reconnect', { provider: provider.provider }); await connections(); } catch (error) { notice(error.message, true); } }); card.append(retry); } return card;
   }));

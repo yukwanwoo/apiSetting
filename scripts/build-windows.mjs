@@ -1,5 +1,7 @@
 import { build } from 'esbuild';
 import { inject } from 'postject';
+import { rcedit } from 'rcedit';
+import { pngToIco } from './icon.mjs';
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -21,6 +23,7 @@ await build({
   define: { 'import.meta.url': '__entryUrl', 'process.env.WS_NO_BUFFER_UTIL': '"1"', 'process.env.WS_NO_UTF_8_VALIDATE': '"1"' },
   banner: { js: "const __entryUrl = require('node:url').pathToFileURL(__filename).href;" }
 });
+writeFileSync('public/favicon.ico', pngToIco(readFileSync('public/meso-icon.png')));
 const assets = Object.fromEntries(readdirSync('public').map(name => [`public/${name}`, resolve('public', name)]));
 writeFileSync('dist/sea-config.json', JSON.stringify({ main: resolve('dist/desktop.cjs'), output: resolve('dist/sea.blob'), disableExperimentalSEAWarning: true, useSnapshot: false, useCodeCache: false, assets }));
 execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.json'], { stdio: 'inherit' });
@@ -36,6 +39,7 @@ const securityDirectory = optionalHeader + 112 + 4 * 8;
 const certificateOffset = peFile.readUInt32LE(securityDirectory), certificateSize = peFile.readUInt32LE(securityDirectory + 4);
 peFile.fill(0, securityDirectory, securityDirectory + 8);
 writeFileSync(exe, certificateOffset > 0 && certificateOffset + certificateSize === peFile.length ? peFile.subarray(0, certificateOffset) : peFile);
+await rcedit(exe, { icon: resolve('public/favicon.ico'), 'file-version': version.split('-')[0], 'product-version': version.split('-')[0], 'version-string': { ProductName: '메소 라이브 룰렛', FileDescription: '메소 라이브 룰렛' } });
 await inject(exe, 'NODE_SEA_BLOB', readFileSync('dist/sea.blob'), { sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2' });
 const finalPe = readFileSync(exe), finalOptional = finalPe.readUInt32LE(0x3c) + 24;
 if (finalPe.readBigUInt64LE(finalOptional + 112 + 4 * 8) !== 0n) throw new Error('Executable still contains an invalid signing certificate');

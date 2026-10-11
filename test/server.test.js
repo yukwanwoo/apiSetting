@@ -41,7 +41,7 @@ test('SSE overlay receives actual spin and balance with no admin history', async
   let spin = await next(); if (!spin.active) spin = await next(); assert.equal(spin.active.donation.nickname, '시청자'); assert.equal(spin.active.donation.test, true); assert.equal(spin.history, undefined); abort.abort();
 });
 test('static pages work, CSP allows same-origin preview, and filesystem traversal is blocked', async t => {
-  const { request } = await setup(t); for (const path of ['/', '/overlay.html', '/meso.html', '/styles.css', '/dashboard.js', '/overlay.js']) { const response = await request(path, undefined, false); assert.equal(response.status, 200); assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'self'/); }
+  const { request } = await setup(t); for (const path of ['/', '/overlay.html', '/meso.html', '/styles.css', '/dashboard.js', '/overlay.js', '/meso-icon.png', '/favicon.ico']) { const response = await request(path, undefined, false); assert.equal(response.status, 200); assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'self'/); }
   assert.equal((await request('/data/keys.json', undefined, false)).status, 404); assert.equal((await request('/src/server.js', undefined, false)).status, 404);
 });
 test('API settings and custom exact amounts persist, malformed JSON/invalid rules fail', async t => {

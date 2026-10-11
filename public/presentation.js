@@ -5,8 +5,8 @@ export const DEFAULT_COMMENTS = {
 };
 export const BUILTIN_SOUNDS = [
   { id: 'default', name: '기본 알림음', url: '/alert.wav' },
-  { id: 'chime', name: '짤랑 · 코인 효과음 (자체 제작)', url: '/chime.wav' },
-  { id: 'bell', name: '맑은 벨 (자체 제작)', url: '/bell.wav' }
+  { id: 'chime', name: '띠리링', url: '/chime.wav' },
+  { id: 'bell', name: '맑은 벨', url: '/bell.wav' }
 ];
 export function formatComment(template, active) {
   const d = active.donation, r = active.roulette;

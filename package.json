@@ -1,6 +1,6 @@
 {
   "name": "meso-live-roulette",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "private": true,
   "type": "module",
   "description": "실시간 후원 메소 룰렛과 OBS 브라우저 오버레이",
@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2",
-    "postject": "1.0.0-alpha.6"
+    "postject": "1.0.0-alpha.6",
+    "rcedit": "5.0.2"
   }
 }

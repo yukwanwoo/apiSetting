@@ -32,6 +32,8 @@ def smoke(base, data_dir, artifacts):
   page.locator('#app').wait_for(state='visible')
   page.wait_for_function("() => document.getElementById('server-status').textContent === '실시간 연결됨'")
   assert page.locator('#balance').inner_text()=='30,000,000'
+  assert page.locator('.sidebar img.brand-mark').evaluate('el=>el.complete && el.naturalWidth===256')
+  assert page.locator('link[rel=icon][type="image/png"]').get_attribute('href')=='/meso-icon.png'
   obs_context=browser.new_context()
   obs_context.add_init_script(browser_play)
   obs=obs_context.new_page()
@@ -67,6 +69,8 @@ def smoke(base, data_dir, artifacts):
 
   page.screenshot(path=str(Path(artifacts, 'overlays-desktop.png')),full_page=True,mask=[page.locator('#roulette-url'),page.locator('#meso-url')])
   page.locator('[data-tab=settings]').click()
+  assert page.locator('#sound-source option[value=chime]').inner_text()=='띠리링'
+  assert page.locator('#sound-source option[value=bell]').inner_text()=='맑은 벨'
   assert page.locator('#sound-end').input_value()=='2.5'
   audio_path=Path(artifacts,'five-seconds.wav')
   with wave.open(str(audio_path),'wb') as wav:
@@ -150,6 +154,7 @@ def smoke(base, data_dir, artifacts):
   meso=browser.new_page(viewport={'width':640,'height':220})
   meso.goto(page.locator('#meso-url').input_value())
   meso.wait_for_function("() => document.getElementById('meso-balance').textContent.includes('31,000,000')")
+  assert meso.locator('img.meso-icon').evaluate('el=>el.complete && el.naturalWidth===256')
   meso.screenshot(path=str(Path(artifacts, 'meso-overlay.png')),omit_background=True)
   page.screenshot(path=str(Path(artifacts, 'spin-desktop.png')),full_page=True,mask=[page.locator('#roulette-url'),page.locator('#meso-url')])
   page.wait_for_function("() => document.getElementById('spin-status').textContent === 'STANDBY'")

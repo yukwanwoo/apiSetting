@@ -24,7 +24,19 @@ writeFileSync('dist/sea-config.json', JSON.stringify({ main: resolve('dist/deskt
 execFileSync(process.execPath, ['--experimental-sea-config', 'dist/sea-config.json'], { stdio: 'inherit' });
 const exe = resolve(`dist/MesoLiveRoulette-${version}-win-x64.exe`);
 copyFileSync(process.execPath, exe);
+// Modifying a signed Node executable invalidates its Authenticode signature.
+// Clear the PE32+ security directory and remove the trailing certificate table
+// before injection (equivalent to signtool remove /s, without an SDK dependency).
+const peFile = readFileSync(exe);
+const peOffset = peFile.readUInt32LE(0x3c), optionalHeader = peOffset + 24;
+if (peFile.toString('ascii', peOffset, peOffset + 4) !== 'PE\0\0' || peFile.readUInt16LE(peOffset + 4) !== 0x8664 || peFile.readUInt16LE(optionalHeader) !== 0x20b) throw new Error('Expected Windows x64 PE32+ executable');
+const securityDirectory = optionalHeader + 112 + 4 * 8;
+const certificateOffset = peFile.readUInt32LE(securityDirectory), certificateSize = peFile.readUInt32LE(securityDirectory + 4);
+peFile.fill(0, securityDirectory, securityDirectory + 8);
+writeFileSync(exe, certificateOffset > 0 && certificateOffset + certificateSize === peFile.length ? peFile.subarray(0, certificateOffset) : peFile);
 await inject(exe, 'NODE_SEA_BLOB', readFileSync('dist/sea.blob'), { sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2' });
+const finalPe = readFileSync(exe), finalOptional = finalPe.readUInt32LE(0x3c) + 24;
+if (finalPe.readBigUInt64LE(finalOptional + 112 + 4 * 8) !== 0n) throw new Error('Executable still contains an invalid signing certificate');
 copyFileSync('docs/WINDOWS.txt', 'dist/사용설명서.txt');
 // Upstream v24.19.0 license is vendored; packaging needs no extra downloads.
 writeFileSync('dist/THIRD-PARTY-NOTICES.txt', ['Node.js 24.19.0', readFileSync('docs/NODE-LICENSE.txt', 'utf8'), '\nsoop-chat 0.6.0', readFileSync('node_modules/soop-chat/LICENSE', 'utf8'), '\nws 8.21.3', readFileSync('node_modules/ws/LICENSE', 'utf8')].join('\n'));
